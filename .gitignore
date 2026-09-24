@@ -1,0 +1,66 @@
+# ==============================================================================
+# Gitignore for Tang Nano 20K RISC-V SoC Project
+# ==============================================================================
+
+# Gowin EDA Build Artifacts & Logs
+impl/
+temp/
+*.fs
+*.bin
+*.db
+*.log
+*.rpt
+*.power.html
+*.timing.html
+*.tr.html
+*.vo
+*.vhm
+*.vhd.tmp
+*.v.tmp
+*.fs.bin
+*.gprj.user
+*.bin.gz
+*.posp
+*.id
+*.json
+
+# Simulation Artifacts (ModelSim, Questa, Icarus, Verilator, VCS)
+*.vcd
+*.fst
+*.fsdb
+*.wlf
+work/
+simv*
+csrc/
+*.daidir/
+obj_dir/
+*.log
+dump.vcd
+
+# Software Build Artifacts (Bare-metal RISC-V Toolchain)
+sw/*.o
+sw/*.elf
+sw/*.bin
+sw/*.hex
+sw/*.dis
+sw/*.map
+*.d
+
+# OS & Editor Artifacts
+.DS_Store
+Thumbs.db
+desktop.ini
+*.swp
+*~
+.vscode/
+.idea/
+*.sublime-workspace
+*.bak
+
+# Private Learning Plan & Personal Roadmap
+PLAN.md
+
+# Personal Progress, Notes, and Analysis Images (Private)
+progress/
+
+

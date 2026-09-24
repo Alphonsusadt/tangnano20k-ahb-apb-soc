@@ -1,0 +1,71 @@
+// ==============================================================================
+// Tang Nano 20K Physical Constraints File (.cst)
+// Device: GW2AR-LV18QN88C8/I7
+// Board: Sipeed Tang Nano 20K
+// ==============================================================================
+
+// ------------------------------------------------------------------------------
+// Clock & Reset Pins
+// ------------------------------------------------------------------------------
+// On-board 27MHz crystal oscillator
+IO_LOC  "clk_27m" 4;
+IO_PORT "clk_27m" IO_TYPE=LVCMOS33 PULL_MODE=UP;
+
+// Pushbutton S1 (Key 1 / Active-Low Reset)
+IO_LOC  "rst_n" 88;
+IO_PORT "rst_n" IO_TYPE=LVCMOS33 PULL_MODE=UP;
+
+// Pushbutton S2 (Key 2 / User Input)
+IO_LOC  "btn_s2" 87;
+IO_PORT "btn_s2" IO_TYPE=LVCMOS33 PULL_MODE=UP;
+
+// ------------------------------------------------------------------------------
+// USB-to-UART Interface (On-board Bouffalo Lab BL702 bridge)
+// ------------------------------------------------------------------------------
+// FPGA UART TX pin -> BL702 RX pin
+IO_LOC  "uart_tx" 69;
+IO_PORT "uart_tx" IO_TYPE=LVCMOS33 DRIVE=8 PULL_MODE=UP;
+
+// FPGA UART RX pin <- BL702 TX pin
+IO_LOC  "uart_rx" 70;
+IO_PORT "uart_rx" IO_TYPE=LVCMOS33 PULL_MODE=UP;
+
+// ------------------------------------------------------------------------------
+// On-board User LEDs (Active LOW: 0 = LED ON, 1 = LED OFF)
+// ------------------------------------------------------------------------------
+IO_LOC  "led[0]" 15;
+IO_PORT "led[0]" IO_TYPE=LVCMOS33 DRIVE=8 PULL_MODE=UP;
+
+IO_LOC  "led[1]" 16;
+IO_PORT "led[1]" IO_TYPE=LVCMOS33 DRIVE=8 PULL_MODE=UP;
+
+IO_LOC  "led[2]" 17;
+IO_PORT "led[2]" IO_TYPE=LVCMOS33 DRIVE=8 PULL_MODE=UP;
+
+IO_LOC  "led[3]" 18;
+IO_PORT "led[3]" IO_TYPE=LVCMOS33 DRIVE=8 PULL_MODE=UP;
+
+IO_LOC  "led[4]" 19;
+IO_PORT "led[4]" IO_TYPE=LVCMOS33 DRIVE=8 PULL_MODE=UP;
+
+IO_LOC  "led[5]" 20;
+IO_PORT "led[5]" IO_TYPE=LVCMOS33 DRIVE=8 PULL_MODE=UP;
+
+// ------------------------------------------------------------------------------
+// SPI Master Interface (Header Pins)
+// ------------------------------------------------------------------------------
+// SPI Clock
+IO_LOC  "spi_sck" 73;
+IO_PORT "spi_sck" IO_TYPE=LVCMOS33 DRIVE=8 PULL_MODE=NONE;
+
+// SPI Master Out Slave In
+IO_LOC  "spi_mosi" 74;
+IO_PORT "spi_mosi" IO_TYPE=LVCMOS33 DRIVE=8 PULL_MODE=NONE;
+
+// SPI Master In Slave Out
+IO_LOC  "spi_miso" 75;
+IO_PORT "spi_miso" IO_TYPE=LVCMOS33 PULL_MODE=UP;
+
+// SPI Chip Select (Active Low)
+IO_LOC  "spi_cs_n" 72;
+IO_PORT "spi_cs_n" IO_TYPE=LVCMOS33 DRIVE=8 PULL_MODE=UP;
