@@ -12,7 +12,7 @@ This project is under active development.
 | --- | --- |
 | APB SPI master RTL | Unit-level simulation available |
 | AHB address decoder | Implemented and under verification |
-| AHB-to-APB4 bridge | Implemented and under verification |
+| AHB-to-APB4 bridge | Directed unit regression passes: 1,828 checks; system integration pending |
 | Ibex integration | In progress |
 | Bare-metal firmware | In progress |
 | FPGA synthesis and timing results | To be documented |
@@ -41,7 +41,7 @@ flowchart TD
 
 Ibex uses OBI-style instruction and data interfaces. The CPU bus adapter is responsible for translating CPU transactions into the system bus used by the AHB interconnect. The AHB-to-APB bridge then converts high-performance bus transactions into APB setup and access phases for low-speed peripherals.
 
-## Main Features
+## Design Scope
 
 - RV32 RISC-V CPU integration based on lowRISC Ibex.
 - AHB-Lite address decoding for instruction memory, data memory, and peripherals.
@@ -57,25 +57,30 @@ Ibex uses OBI-style instruction and data interfaces. The CPU bus adapter is resp
 
 ```text
 tangnano-soc-portfolio/
-├── docs/
-│   └── memory_map.md          # System address map and peripheral registers
-├── dv/
-│   ├── tb_apb_spi.sv          # APB SPI unit-level testbench
-│   └── tb_soc_top.sv          # SoC-level testbench with UART monitor
-├── fpga/
-│   ├── tangnano20k.cst        # Tang Nano 20K pin constraints
-│   └── build/                  # Gowin project files
-├── rtl/
-│   ├── core/                  # Ibex core and integration files
-│   ├── interconnect/          # AHB decoder and AHB-to-APB bridge
-│   ├── peripherals/           # APB UART, SPI, and GPIO peripherals
-│   └── soc_top.sv             # Top-level SoC wrapper
-├── sw/
-│   ├── main.c                 # Bare-metal firmware
-│   └── link.ld                # ROM/RAM linker script
-├── PLAN.md                    # Private development roadmap
-└── README.md                 # Project documentation
+|-- docs/                         # Architecture, register map, and verification guides
+|   |-- memory_map.md
+|   `-- ahb_bridge_simulation.md
+|-- dv/                           # Simulation testbenches
+|   |-- tb_ahb_to_apb_bridge.sv
+|   |-- tb_apb_spi.sv
+|   `-- tb_soc_top.sv
+|-- fpga/
+|   |-- tangnano20k.cst            # Board pin constraints
+|   `-- build/                    # Gowin project configuration
+|-- rtl/
+|   |-- core/                     # CPU integration documentation
+|   |-- interconnect/             # AHB decoder and AHB-to-APB bridge
+|   |-- peripherals/              # APB UART, SPI, and GPIO
+|   `-- soc_top.sv                # SoC integration scaffold
+|-- sw/                           # Bare-metal firmware and linker script
+`-- README.md
 ```
+
+Public technical documentation belongs in `docs/`. Personal plans, learning
+journals, local tool settings, and generated simulation/build outputs are
+excluded from version control. Simulation executables should be written to
+`work/`; the Gowin project configuration in `fpga/build/` remains versioned.
+
 
 ## Memory Map
 
@@ -111,9 +116,16 @@ gtkwave tb_apb_spi.vcd
 
 The SPI testbench configures the controller, transmits test bytes, applies a loopback response, polls the busy flag, and reads the received data.
 
+### Run the AHB-to-APB Bridge Testbench
+
+The self-checking bridge testbench and PowerShell commands are documented in
+[`docs/ahb_bridge_simulation.md`](docs/ahb_bridge_simulation.md), including the
+verified scenarios, regression results, known limitations, and waveform debugging steps.
+
 ### Run the SoC Testbench
 
-After the firmware image has been generated:
+The following is an integration command template. Full SoC execution remains
+pending completion of the Ibex core, bus adapter, and firmware integration:
 
 ```bash
 iverilog -g2012 -o sim_soc \

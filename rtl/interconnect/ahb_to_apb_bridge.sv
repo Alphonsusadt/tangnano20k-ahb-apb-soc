@@ -1,3 +1,4 @@
+`timescale 1ns/1ps
 // ==============================================================================
 // Module: ahb_to_apb_bridge
 // Description: AHB-Lite to APB4 Bridge with integrated address decoding
@@ -45,121 +46,81 @@ module ahb_to_apb_bridge (
     input  wire        pslverr_gpio
 );
 
-    localparam HTRANS_IDLE   = 2'b00;
-    localparam HTRANS_NONSEQ = 2'b10;
-    localparam HTRANS_SEQ    = 2'b11;
-
-    typedef enum logic [1:0] {
-        ST_IDLE   = 2'b00,
-        ST_SETUP  = 2'b01,
-        ST_ACCESS = 2'b10
+    // One outstanding transfer. DATA captures AHB write data before APB SETUP.
+    typedef enum logic [2:0] {
+        ST_IDLE, ST_DATA, ST_SETUP, ST_ACCESS, ST_RESPONSE, ST_ERROR1, ST_ERROR2
     } state_t;
-
-    state_t state, state_next;
-
-    // Registered AHB transfer info
-    reg [31:0] haddr_reg;
-    reg        hwrite_reg;
-    reg [2:0]  hsize_reg;
-    reg        ahb_valid;
-
-    // Address decode
-    wire sel_uart_raw = (haddr_reg[15:12] == 4'h0); // 0x4000_0xxx
-    wire sel_spi_raw  = (haddr_reg[15:12] == 4'h1); // 0x4000_1xxx
-    wire sel_gpio_raw = (haddr_reg[15:12] == 4'h2); // 0x4000_2xxx
-
-    wire apb_active = (state == ST_SETUP) || (state == ST_ACCESS);
-
+    state_t state;
+    reg invalid_transfer;
+    wire sel_uart_raw = (paddr[31:12] == 20'h40000);
+    wire sel_spi_raw  = (paddr[31:12] == 20'h40001);
+    wire sel_gpio_raw = (paddr[31:12] == 20'h40002);
+    wire apb_active = hreset_n && ((state == ST_SETUP) || (state == ST_ACCESS));
     assign psel_uart = apb_active && sel_uart_raw;
     assign psel_spi  = apb_active && sel_spi_raw;
     assign psel_gpio = apb_active && sel_gpio_raw;
+    wire selected_pready = sel_uart_raw ? pready_uart :
+                           sel_spi_raw ? pready_spi : pready_gpio;
+    wire [31:0] selected_prdata = sel_uart_raw ? prdata_uart :
+                                 sel_spi_raw ? prdata_spi : prdata_gpio;
+    wire selected_pslverr = sel_uart_raw ? pslverr_uart :
+                            sel_spi_raw ? pslverr_spi : pslverr_gpio;
+    assign hresp = hreset_n && ((state == ST_ERROR1) || (state == ST_ERROR2));
+    always @* begin
+        hready = !hreset_n || (state == ST_IDLE) ||
+                 (state == ST_RESPONSE) || (state == ST_ERROR2);
+        penable = hreset_n && (state == ST_ACCESS);
+    end
 
-    // Multiplex selected APB slave responses
-    wire        selected_pready  = sel_uart_raw ? pready_uart  : (sel_spi_raw ? pready_spi  : (sel_gpio_raw ? pready_gpio  : 1'b1));
-    wire [31:0] selected_prdata  = sel_uart_raw ? prdata_uart  : (sel_spi_raw ? prdata_spi  : (sel_gpio_raw ? prdata_gpio  : 32'h0));
-    wire        selected_pslverr = sel_uart_raw ? pslverr_uart : (sel_spi_raw ? pslverr_spi : (sel_gpio_raw ? pslverr_gpio : 1'b0));
-
-    assign hresp = selected_pslverr;
-
-    // State machine
     always @(posedge hclk or negedge hreset_n) begin
         if (!hreset_n) begin
             state <= ST_IDLE;
+            paddr <= 0;
+            pwrite <= 0;
+            pwdata <= 0;
+            pprot <= 0;
+            pstrb <= 0;
+            hrdata <= 0;
+            invalid_transfer <= 0;
         end else begin
-            state <= state_next;
-        end
-    end
-
-    always @(*) begin
-        state_next = state;
-        case (state)
-            ST_IDLE: begin
-                if (hsel && (htrans == HTRANS_NONSEQ || htrans == HTRANS_SEQ)) begin
-                    state_next = ST_SETUP;
+            case (state)
+                ST_IDLE, ST_RESPONSE, ST_ERROR2: begin
+                    // Also accept the next address at the preceding response edge.
+                    if (hsel && htrans[1]) begin
+                        paddr <= haddr;
+                        pwrite <= hwrite;
+                        pprot <= 0; // This interface has no HPROT input.
+                        invalid_transfer <=
+                            !((haddr[31:12] == 20'h40000) ||
+                              (haddr[31:12] == 20'h40001) ||
+                              (haddr[31:12] == 20'h40002)) ||
+                            (hsize > 2) ||
+                            ((hsize == 1) && haddr[0]) ||
+                            ((hsize == 2) && (haddr[1:0] != 0));
+                        if (!hwrite) pstrb <= 0;
+                        else case (hsize)
+                            0: pstrb <= 4'b0001 << haddr[1:0];
+                            1: pstrb <= 4'b0011 << haddr[1:0];
+                            2: pstrb <= 4'b1111;
+                            default: pstrb <= 0;
+                        endcase
+                        state <= ST_DATA;
+                    end else state <= ST_IDLE;
                 end
-            end
-            ST_SETUP: begin
-                state_next = ST_ACCESS;
-            end
-            ST_ACCESS: begin
-                if (selected_pready) begin
-                    state_next = ST_IDLE;
+                ST_DATA: begin
+                    pwdata <= hwdata;
+                    if (invalid_transfer) state <= ST_ERROR1;
+                    else state <= ST_SETUP;
                 end
-            end
-            default: state_next = ST_IDLE;
-        endcase
-    end
-
-    // AHB Address / control latching
-    always @(posedge hclk or negedge hreset_n) begin
-        if (!hreset_n) begin
-            haddr_reg  <= 32'h0;
-            hwrite_reg <= 1'b0;
-            hsize_reg  <= 3'b0;
-        end else if (hsel && (htrans == HTRANS_NONSEQ || htrans == HTRANS_SEQ) && (state == ST_IDLE)) begin
-            haddr_reg  <= haddr;
-            hwrite_reg <= hwrite;
-            hsize_reg  <= hsize;
-        end
-    end
-
-    // APB output generation
-    always @(posedge hclk or negedge hreset_n) begin
-        if (!hreset_n) begin
-            paddr   <= 32'h0;
-            pwdata  <= 32'h0;
-            pwrite  <= 1'b0;
-            pprot   <= 3'b0;
-            pstrb   <= 4'b1111;
-            penable <= 1'b0;
-            hrdata  <= 32'h0;
-            hready  <= 1'b1;
-        end else begin
-            case (state_next)
-                ST_IDLE: begin
-                    penable <= 1'b0;
-                    hready  <= 1'b1;
+                ST_SETUP: state <= ST_ACCESS;
+                ST_ACCESS: if (selected_pready) begin
+                    hrdata <= selected_prdata;
+                    if (selected_pslverr) state <= ST_ERROR1;
+                    else state <= ST_RESPONSE;
                 end
-                ST_SETUP: begin
-                    paddr   <= haddr_reg;
-                    pwdata  <= hwdata;
-                    pwrite  <= hwrite_reg;
-                    pprot   <= 3'b000;
-                    pstrb   <= 4'b1111;
-                    penable <= 1'b0;
-                    hready  <= 1'b0; // Hold AHB master while APB transaction runs
-                end
-                ST_ACCESS: begin
-                    penable <= 1'b1;
-                    if (selected_pready) begin
-                        hrdata <= selected_prdata;
-                        hready <= 1'b1;
-                    end else begin
-                        hready <= 1'b0;
-                    end
-                end
+                ST_ERROR1: state <= ST_ERROR2;
+                default: state <= ST_IDLE;
             endcase
         end
     end
-
 endmodule
