@@ -107,6 +107,9 @@ module tb_apb_spi;
 
     // --------------------------------------------------------------------------
     // Main Test Stimulus
+    // Sequence: reset -> read status -> configure mode 0 -> write TXDATA
+    // -> poll BUSY until clear -> read and check RXDATA -> repeat.
+    // Inverted loopback means RX must equal the bitwise complement of TX.
     // --------------------------------------------------------------------------
     logic [31:0] read_val;
 
@@ -163,6 +166,11 @@ module tb_apb_spi;
         // 5. Read received data byte from SPI_RXDATA
         apb_read(ADDR_SPI_RXDATA, read_val);
         $display("[TB_APB_SPI] Read SPI_RXDATA = 0x%02X", read_val[7:0]);
+        if (read_val[7:0] !== 8'h5A) begin
+            $fatal(1, "FAIL: TX=A5, expected RX=5A, actual RX=%02h",
+                   read_val[7:0]);
+        end
+        $display("PASS: TX=A5, RX=5A");
 
         // 6. Test another byte transfer: 0x3C
         #200;
@@ -176,6 +184,11 @@ module tb_apb_spi;
         end
         apb_read(ADDR_SPI_RXDATA, read_val);
         $display("[TB_APB_SPI] Read SPI_RXDATA = 0x%02X", read_val[7:0]);
+        if (read_val[7:0] !== 8'hC3) begin
+            $fatal(1, "FAIL: TX=3C, expected RX=C3, actual RX=%02h",
+                   read_val[7:0]);
+        end
+        $display("PASS: TX=3C, RX=C3");
 
         #500;
         $display("--------------------------------------------------");
@@ -187,8 +200,7 @@ module tb_apb_spi;
     // Simulation watchdog timeout
     initial begin
         #500000;
-        $display("[TB_APB_SPI] ERROR: Simulation Timeout!");
-        $finish;
+        $fatal(1, "[TB_APB_SPI] ERROR: Simulation Timeout!");
     end
 
 endmodule

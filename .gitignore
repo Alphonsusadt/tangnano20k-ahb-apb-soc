@@ -22,7 +22,6 @@ temp/
 *.bin.gz
 *.posp
 *.id
-*.json
 
 # Simulation Artifacts (ModelSim, Questa, Icarus, Verilator, VCS)
 *.vcd
@@ -31,6 +30,10 @@ temp/
 *.wlf
 work/
 simv*
+*.vvp
+/sim_spi
+/sim_soc
+/tb_soc_top_sim
 csrc/
 *.daidir/
 obj_dir/
@@ -57,10 +60,24 @@ desktop.ini
 *.sublime-workspace
 *.bak
 
-# Private Learning Plan & Personal Roadmap
-PLAN.md
+# Markdown: publish project documentation; keep ad-hoc notes local.
+# Put public technical documents in docs/ and personal notes in progress/.
+*.md
+!README.md
+!/docs/**/*.md
+!LICENSE.md
+!CONTRIBUTING.md
+!CHANGELOG.md
+!SECURITY.md
+!CODE_OF_CONDUCT.md
 
-# Personal Progress, Notes, and Analysis Images (Private)
-progress/
-
-
+# Private plans, journals, agent configuration, and local credentials
+/PLAN.md
+/progress/
+/notes/
+/.agents/
+/.codex/
+/.aws/
+.env
+.env.*
+!.env.example
