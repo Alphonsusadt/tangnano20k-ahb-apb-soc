@@ -19,6 +19,8 @@ Sistem menggunakan bus **AHB-Lite 32-bit** sebagai interkoneksi utama untuk CPU,
 
 Transfer ke alamat di luar tabel ini dijawab oleh default slave di `ahb_interconnect` dengan `ERROR` dua siklus. Rentang *Reserved* dijawab `ERROR` oleh AHB-to-APB bridge.
 
+Tulis byte dan halfword ke register APB mengikuti `PSTRB`: satu byte register hanya berubah kalau strobe-nya aktif. `UART_DATA` dan `SPI_TXDATA` hanya memulai pengiriman kalau `PSTRB[0]` aktif.
+
 ---
 
 ## 2. Register Periferal APB UART (`0x4000_0000`)

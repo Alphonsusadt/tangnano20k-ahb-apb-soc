@@ -37,6 +37,7 @@ module apb_gpio (
         endcase
     end
 
+    // Both registers live in byte lane 0, so only PSTRB[0] can change them.
     wire apb_write = psel && penable && pwrite;
 
     always @(posedge pclk or negedge preset_n) begin
@@ -45,8 +46,8 @@ module apb_gpio (
             dir_reg  <= 6'b111111;
         end else if (apb_write) begin
             case (paddr[3:2])
-                2'b00: gpio_out <= pwdata[5:0];
-                2'b10: dir_reg  <= pwdata[5:0];
+                2'b00: if (pstrb[0]) gpio_out <= pwdata[5:0];
+                2'b10: if (pstrb[0]) dir_reg  <= pwdata[5:0];
                 default: ;
             endcase
         end

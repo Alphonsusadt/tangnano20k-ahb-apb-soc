@@ -12,8 +12,9 @@ This project is under active development.
 | --- | --- |
 | APB SPI master RTL | Directed unit regression passes: 192 checks |
 | APB UART RTL | Directed unit regression passes: 62 checks |
-| AHB-Lite SRAM | Unit regression passes: 8,855 checks; SoC-level regression passes: 24 checks; not yet synthesized |
+| AHB-Lite SRAM | Unit regression passes: 8,855 checks; SoC-level regression passes: 27 checks; not yet synthesized |
 | AHB interconnect and default slave | Directed unit regression passes: 299 checks; not yet synthesized |
+| APB write strobes (GPIO, UART, SPI) | Directed regression passes: 62 checks; not yet synthesized |
 | AHB-to-APB4 bridge | Directed unit regression passes: 1,828 checks; system integration pending |
 | Ibex integration | In progress |
 | Bare-metal firmware | In progress |
@@ -66,6 +67,7 @@ tangnano-soc-portfolio/
 |   |-- tb_ahb_interconnect.sv
 |   |-- tb_ahb_sram.sv
 |   |-- tb_ahb_to_apb_bridge.sv
+|   |-- tb_apb_pstrb.sv
 |   |-- tb_apb_spi.sv
 |   |-- tb_apb_uart.sv
 |   |-- tb_soc_sram.sv
@@ -139,6 +141,17 @@ and the two-cycle ERROR for unmapped addresses.
 mkdir -p work
 iverilog -g2012 -s tb_ahb_interconnect -o work/sim_ic \n  dv/tb_ahb_interconnect.sv \n  rtl/interconnect/ahb_interconnect.sv
 vvp work/sim_ic
+```
+
+### Run the Write Strobe Testbench
+
+`tb_apb_pstrb` checks that a GPIO, UART, or SPI register byte changes only when its
+`PSTRB` bit is set, and that a transmission starts only when the data byte is valid.
+
+```bash
+mkdir -p work
+iverilog -g2012 -s tb_apb_pstrb -o work/sim_pstrb \n  dv/tb_apb_pstrb.sv \n  rtl/peripherals/*.v
+vvp work/sim_pstrb
 ```
 
 ### Run the SRAM Testbenches

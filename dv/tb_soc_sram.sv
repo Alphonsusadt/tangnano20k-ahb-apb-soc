@@ -227,6 +227,19 @@ module tb_soc_sram;
         read(SRAM_BASE, SIZE_WORD, val);
         check_eq(val, 32'h1111_1111, "write past SRAM end does not wrap around");
 
+        // A byte or halfword write through the bridge reaches the register as PSTRB.
+        // GPIO_OUT uses lane 0 only, so writes to other lanes must leave it alone.
+        write(GPIO_OUT, SIZE_WORD, 32'h0000_002A);
+        write(GPIO_OUT + 32'h1, SIZE_BYTE, 32'h0000_FF00);
+        read(GPIO_OUT, SIZE_WORD, val);
+        check_eq(val, 32'h0000_002A, "byte write to GPIO lane 1 leaves the LEDs alone");
+        write(GPIO_OUT + 32'h2, SIZE_HALF, 32'hFFFF_0000);
+        read(GPIO_OUT, SIZE_WORD, val);
+        check_eq(val, 32'h0000_002A, "halfword write to GPIO upper half leaves the LEDs alone");
+        write(GPIO_OUT, SIZE_BYTE, 32'hFFFF_FF15);
+        read(GPIO_OUT, SIZE_WORD, val);
+        check_eq(val, 32'h0000_0015, "byte write to GPIO lane 0 updates the LEDs");
+
         checks = checks + 1;
         if (hresp !== 1'b0) begin
             failures = failures + 1;

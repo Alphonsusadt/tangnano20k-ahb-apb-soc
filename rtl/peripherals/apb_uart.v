@@ -95,7 +95,8 @@ module apb_uart #(
 
             if (apb_write) begin
                 case (paddr[3:2])
-                    2'b00: begin
+                    // Without a valid data byte there is nothing to send.
+                    2'b00: if (pstrb[0]) begin
                         tx_data_reg  <= pwdata[7:0];
                         if (tx_en && !tx_busy) begin
                             tx_start_req <= 1'b1;
@@ -104,8 +105,11 @@ module apb_uart #(
                     2'b01: begin
                         // Write 1 to clear status bits if desired
                     end
-                    2'b10: ctrl_reg     <= pwdata[3:0];
-                    2'b11: baud_div_reg <= pwdata[15:0];
+                    2'b10: if (pstrb[0]) ctrl_reg <= pwdata[3:0];
+                    2'b11: begin
+                        if (pstrb[0]) baud_div_reg[7:0]  <= pwdata[7:0];
+                        if (pstrb[1]) baud_div_reg[15:8] <= pwdata[15:8];
+                    end
                 endcase
             end
         end

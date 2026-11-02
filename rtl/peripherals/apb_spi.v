@@ -98,14 +98,18 @@ module apb_spi (
             transfer_start <= 1'b0;
             if (apb_write_pulse) begin
                 case (paddr[4:2])
-                    3'b000: cr_reg <= pwdata[12:0];
-                    3'b010: begin
+                    3'b000: begin
+                        if (pstrb[0]) cr_reg[7:0]  <= pwdata[7:0];
+                        if (pstrb[1]) cr_reg[12:8] <= pwdata[12:8];
+                    end
+                    // Without a valid data byte there is nothing to send.
+                    3'b010: if (pstrb[0]) begin
                         tx_reg         <= pwdata[7:0];
                         if (spi_en && !busy) begin
                             transfer_start <= 1'b1;
                         end
                     end
-                    3'b100: cs_reg <= pwdata[7:0];
+                    3'b100: if (pstrb[0]) cs_reg <= pwdata[7:0];
                     default: ;
                 endcase
             end
