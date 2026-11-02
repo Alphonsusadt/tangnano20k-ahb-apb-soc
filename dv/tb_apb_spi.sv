@@ -106,6 +106,83 @@ module tb_apb_spi;
     end
 
     // --------------------------------------------------------------------------
+    // SPI Protocol Monitor
+    // Acts as an independent slave: captures MOSI on the sampling edge defined
+    // by CPHA, so a transmit bug cannot be hidden by the master's own RX path.
+    // --------------------------------------------------------------------------
+    logic       monitor_en = 1'b0;
+    logic       mon_cpha   = 1'b0;
+    logic       mon_lsb    = 1'b0;
+    logic [7:0] slave_rx   = 8'h00;
+    integer     edge_count = 0;
+    integer     cs_errors  = 0;
+    integer     checks     = 0;
+    integer     failures   = 0;
+
+    always @(spi_sck) begin
+        if (monitor_en) begin
+            edge_count = edge_count + 1;
+            if (spi_cs_n[0] !== 1'b0) cs_errors = cs_errors + 1;
+            // CPHA=0 samples on odd edges (leading), CPHA=1 on even (trailing)
+            if ((edge_count % 2 == 1) != mon_cpha) begin
+                slave_rx = mon_lsb ? {spi_mosi, slave_rx[7:1]}
+                                   : {slave_rx[6:0], spi_mosi};
+            end
+        end
+    end
+
+    task automatic check(input logic ok, input string what);
+        checks = checks + 1;
+        if (ok !== 1'b1) begin
+            failures = failures + 1;
+            $display("FAIL: %s", what);
+        end
+    endtask
+
+    // Runs one auto-CS transfer and checks both directions of the bus.
+    task automatic run_transfer(input logic cpol, input logic cpha,
+                                input logic lsb, input logic [7:0] tx);
+        logic [31:0] status;
+        logic [31:0] rx;
+        logic [31:0] cr;
+        string       tag;
+
+        cr = 32'h1 | (32'(cpha) << 1) | (32'(cpol) << 2) | (32'(lsb) << 3)
+                   | (32'd4 << 4) | (32'd1 << 12);
+        tag = $sformatf("CPOL=%0d CPHA=%0d LSB=%0d TX=%02h", cpol, cpha, lsb, tx);
+
+        apb_write(ADDR_SPI_CR, cr);
+        repeat (3) @(posedge pclk);
+        check(spi_sck === cpol, {tag, ": SCK idle level before transfer"});
+
+        mon_cpha   = cpha;
+        mon_lsb    = lsb;
+        slave_rx   = 8'h00;
+        edge_count = 0;
+        cs_errors  = 0;
+        monitor_en = 1'b1;
+
+        apb_write(ADDR_SPI_TXDATA, {24'h0, tx});
+        status = 32'h1;
+        while (status[0] == 1'b1) begin
+            #50;
+            apb_read(ADDR_SPI_SR, status);
+        end
+        monitor_en = 1'b0;
+        apb_read(ADDR_SPI_RXDATA, rx);
+
+        check(edge_count == 16,
+              $sformatf("%s: expected 16 SCK edges, got %0d", tag, edge_count));
+        check(slave_rx === tx,
+              $sformatf("%s: slave expected %02h, got %02h", tag, tx, slave_rx));
+        check(rx[7:0] === ~tx,
+              $sformatf("%s: master expected %02h, got %02h", tag, ~tx, rx[7:0]));
+        check(cs_errors == 0,
+              $sformatf("%s: CS high on %0d SCK edges", tag, cs_errors));
+        check(spi_sck === cpol, {tag, ": SCK idle level after transfer"});
+    endtask
+
+    // --------------------------------------------------------------------------
     // Main Test Stimulus
     // Sequence: reset -> read status -> configure mode 0 -> write TXDATA
     // -> poll BUSY until clear -> read and check RXDATA -> repeat.
@@ -190,8 +267,23 @@ module tb_apb_spi;
         end
         $display("PASS: TX=3C, RX=C3");
 
+        // 7. All SPI modes, both bit orders. The byte set matters: 0xA5 alone
+        //    hides a lost final RX bit because ~0xA5 has a zero MSB.
+        for (int mode = 0; mode < 4; mode++) begin
+            for (int order = 0; order < 2; order++) begin
+                run_transfer(mode[1], mode[0], order[0], 8'hA5);
+                run_transfer(mode[1], mode[0], order[0], 8'h3C);
+                run_transfer(mode[1], mode[0], order[0], 8'h81);
+                run_transfer(mode[1], mode[0], order[0], 8'h00);
+            end
+        end
+
         #500;
         $display("--------------------------------------------------");
+        $display("RESULT: %0d checks, %0d failures", checks, failures);
+        if (failures != 0) begin
+            $fatal(1, "[TB_APB_SPI] SPI verification failed");
+        end
         $display("[TB_APB_SPI] All tests PASSED successfully!");
         $display("--------------------------------------------------");
         $finish;

@@ -52,11 +52,17 @@ module apb_spi (
 
     // SPI Engine State Machine
     reg [7:0]  clk_cnt;
-    reg [3:0]  bit_cnt;
+    reg [3:0]  edge_cnt;    // SCK edge index in a byte: 0..15, even = leading edge
     reg [7:0]  tx_shift;
     reg [7:0]  rx_shift;
     reg        sck_internal;
     reg        transfer_start;
+
+    // CPHA=0 samples on leading edges (even index), CPHA=1 on trailing (odd).
+    wire sample_edge = edge_cnt[0] == spi_cpha;
+    // The first bit is already on MOSI, so CPHA=1 must not shift on edge 0.
+    // The last edge never shifts because the byte is complete.
+    wire shift_edge  = !sample_edge && (edge_cnt != 4'd0) && (edge_cnt != 4'd15);
 
     // Status bits
     wire sr_busy     = busy;
@@ -131,7 +137,7 @@ module apb_spi (
             spi_sck      <= 1'b0;
             spi_mosi     <= 1'b0;
             clk_cnt      <= 8'h0;
-            bit_cnt      <= 4'h0;
+            edge_cnt     <= 4'h0;
             tx_shift     <= 8'h00;
             rx_shift     <= 8'h00;
             rx_reg       <= 8'h00;
@@ -146,7 +152,7 @@ module apb_spi (
                         busy         <= 1'b1;
                         tx_shift     <= tx_reg;
                         rx_shift     <= 8'h00;
-                        bit_cnt      <= 4'd8;
+                        edge_cnt     <= 4'd0;
                         clk_cnt      <= clk_div;
                         spi_state    <= TRANSFER;
                         spi_mosi     <= spi_lsb ? tx_reg[0] : tx_reg[7];
@@ -158,25 +164,25 @@ module apb_spi (
                         clk_cnt <= clk_div;
                         sck_internal <= ~sck_internal;
                         spi_sck      <= ~sck_internal;
+                        edge_cnt     <= edge_cnt + 1'b1;
 
-                        // Sample or Shift depending on CPHA and edge
-                        if ((sck_internal == spi_cpol) ^ spi_cpha) begin
-                            // Sampling Edge
+                        if (sample_edge) begin
                             rx_shift <= spi_lsb ? {spi_miso, rx_shift[7:1]} : {rx_shift[6:0], spi_miso};
-                        end else begin
-                            // Shifting Edge
-                            bit_cnt <= bit_cnt - 1'b1;
-                            if (bit_cnt == 4'd1) begin
-                                spi_state <= FINISH;
+                        end
+
+                        if (shift_edge) begin
+                            if (spi_lsb) begin
+                                tx_shift <= {1'b0, tx_shift[7:1]};
+                                spi_mosi <= tx_shift[1];
                             end else begin
-                                if (spi_lsb) begin
-                                    tx_shift <= {1'b0, tx_shift[7:1]};
-                                    spi_mosi <= tx_shift[1];
-                                end else begin
-                                    tx_shift <= {tx_shift[6:0], 1'b0};
-                                    spi_mosi <= tx_shift[6];
-                                end
+                                tx_shift <= {tx_shift[6:0], 1'b0};
+                                spi_mosi <= tx_shift[6];
                             end
+                        end
+
+                        // Every byte is exactly 16 edges, so RX has all 8 samples here.
+                        if (edge_cnt == 4'd15) begin
+                            spi_state <= FINISH;
                         end
                     end else begin
                         clk_cnt <= clk_cnt - 1'b1;
