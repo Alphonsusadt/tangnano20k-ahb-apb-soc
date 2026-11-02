@@ -197,6 +197,7 @@ module soc_top #(
         .hwrite       (bridge_hwrite),
         .hsize        (bridge_hsize),
         .hwdata       (bridge_hwdata),
+        .hready_in    (cpu_hready),
         .hrdata       (bridge_hrdata),
         .hready       (bridge_hready),
         .hresp        (bridge_hresp),

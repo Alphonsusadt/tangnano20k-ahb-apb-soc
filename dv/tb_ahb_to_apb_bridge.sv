@@ -30,10 +30,13 @@ module tb_ahb_to_apb_bridge;
     wire [31:0] uart_data = (psel_uart && penable && ready) ? 32'h11223344 : 32'hdead0000;
     wire [31:0] spi_data = (psel_spi && penable && ready) ? 32'h55667788 : 32'hdead1111;
     wire [31:0] gpio_data = (psel_gpio && penable && ready) ? 32'h99aabbcc : 32'hdead2222;
+    // Another AHB slave can hold global HREADY low while this bridge is idle.
+    reg other_stall = 0;
+    wire hready_in = hready && !other_stall;
     ahb_to_apb_bridge dut (
         .hclk(hclk), .hreset_n(hreset_n), .hsel(hsel),
         .haddr(haddr), .htrans(htrans), .hwrite(hwrite),
-        .hsize(hsize), .hwdata(hwdata), .hrdata(hrdata),
+        .hsize(hsize), .hwdata(hwdata), .hready_in(hready_in), .hrdata(hrdata),
         .hready(hready), .hresp(hresp), .paddr(paddr),
         .pwdata(pwdata), .pwrite(pwrite), .pprot(pprot),
         .pstrb(pstrb), .penable(penable),
@@ -187,6 +190,44 @@ module tb_ahb_to_apb_bridge;
         end
     endtask
 
+    // An address waiting behind another slave's stall is not accepted yet. It can be
+    // cancelled without any APB activity, or held and then accepted exactly once.
+    task automatic waiting_behind_stall;
+        integer n, before_count;
+        begin
+            @(negedge hclk);
+            before_count = completed;
+            slave_errors = 0; wait_cycles = 0; other_stall = 1;
+            hsel = 1; htrans = 2; haddr = 32'h40002000; hwrite = 1; hsize = 2;
+            hwdata = 32'hbad0bad0;
+            for (n = 0; n < 3; n = n + 1) begin
+                @(negedge hclk);
+                check(hready && selects == 0 && !penable, "no APB activity behind a stall");
+            end
+            hsel = 0; htrans = 0; other_stall = 0;
+            repeat (6) @(negedge hclk);
+            check(completed == before_count && selects == 0, "cancelled transfer never reaches APB");
+
+            other_stall = 1;
+            hsel = 1; htrans = 2; haddr = 32'h40002004; hwrite = 1; hsize = 2;
+            hwdata = 32'hbad0bad0;
+            repeat (2) @(negedge hclk);
+            check(hready && selects == 0, "held transfer waits behind the stall");
+            other_stall = 0;
+            @(negedge hclk);
+            check(!hready, "held transfer is accepted when the stall ends");
+            hsel = 0; htrans = 0; hwdata = 32'h600d600d;
+            n = 0;
+            while (!hready && n < 40) begin
+                @(negedge hclk);
+                if (selects != 0) check(pwdata == 32'h600d600d && paddr == 32'h40002004,
+                                        "held transfer uses its own address and data");
+                n = n + 1;
+            end
+            check(completed == before_count + 1, "held transfer completes exactly once");
+        end
+    endtask
+
     integer i, port_index, lane;
     initial begin
         $dumpfile("tb_ahb_to_apb_bridge.vcd");
@@ -232,6 +273,7 @@ module tb_ahb_to_apb_bridge;
             abort_transfer(i);
             transfer(32'h40001000, 0, 0, 2, 2, 0, 0, 0);
         end
+        waiting_behind_stall;
         @(negedge hclk); slave_errors = 7; hsel = 0; htrans = 0;
         repeat (3) @(negedge hclk);
         check(!hresp && hready && selects == 0, "idle ignores stale peripheral errors");

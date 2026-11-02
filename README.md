@@ -15,7 +15,8 @@ This project is under active development.
 | AHB-Lite SRAM | Unit regression passes: 8,855 checks; SoC-level regression passes: 27 checks; not yet synthesized |
 | AHB interconnect and default slave | Directed unit regression passes: 299 checks; not yet synthesized |
 | APB write strobes (GPIO, UART, SPI) | Directed regression passes: 62 checks; not yet synthesized |
-| AHB-to-APB4 bridge | Directed unit regression passes: 1,828 checks; system integration pending |
+| AHB-to-APB4 bridge | Directed unit regression passes: 1,872 checks; not yet synthesized |
+| SoC system without a CPU | Regression through the bus to the chip pins passes: 15,897 checks, including random traffic; not yet synthesized |
 | Ibex integration | In progress |
 | Bare-metal firmware | In progress |
 | FPGA synthesis and timing results | To be documented |
@@ -71,6 +72,7 @@ tangnano-soc-portfolio/
 |   |-- tb_apb_spi.sv
 |   |-- tb_apb_uart.sv
 |   |-- tb_soc_sram.sv
+|   |-- tb_soc_system.sv
 |   `-- tb_soc_top.sv
 |-- fpga/
 |   |-- tangnano20k.cst            # Board pin constraints
@@ -141,6 +143,24 @@ and the two-cycle ERROR for unmapped addresses.
 mkdir -p work
 iverilog -g2012 -s tb_ahb_interconnect -o work/sim_ic \n  dv/tb_ahb_interconnect.sv \n  rtl/interconnect/ahb_interconnect.sv
 vvp work/sim_ic
+```
+
+### Run the System Testbench
+
+`tb_soc_system` forces a pipelined AHB-Lite master onto the undriven CPU bus of
+`soc_top`, then checks GPIO, UART, and SPI at the chip pins. It also covers transfers
+waiting behind an ERROR, register aliases, and random traffic against a reference
+model. It does not replace firmware running on Ibex.
+
+```bash
+mkdir -p work
+iverilog -g2012 -s tb_soc_system -o work/sim_system \
+  dv/tb_soc_system.sv \
+  rtl/soc_top.sv \
+  rtl/memory/*.sv \
+  rtl/interconnect/*.sv \
+  rtl/peripherals/*.v
+vvp work/sim_system
 ```
 
 ### Run the Write Strobe Testbench

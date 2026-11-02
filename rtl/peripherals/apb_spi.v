@@ -27,7 +27,9 @@ module apb_spi (
 );
 
     assign pready  = 1'b1; // Single-cycle APB response
-    assign pslverr = 1'b0;
+    // Offsets past the registers answer with an error instead of aliasing onto them.
+    wire reg_valid = (paddr[11:5] == 7'h00) && (paddr[4:2] <= 3'b100);
+    assign pslverr = psel && penable && !reg_valid;
 
     // Register Offsets
     localparam REG_CR     = 4'h0; // 0x00: Control Register
@@ -86,7 +88,7 @@ module apb_spi (
     end
 
     // APB Register Write
-    wire apb_write_pulse = psel && penable && pwrite;
+    wire apb_write_pulse = psel && penable && pwrite && reg_valid;
 
     always @(posedge pclk or negedge preset_n) begin
         if (!preset_n) begin

@@ -15,6 +15,7 @@ module ahb_to_apb_bridge (
     input  wire        hwrite,
     input  wire [2:0]  hsize,
     input  wire [31:0] hwdata,
+    input  wire        hready_in,  // Global bus HREADY from the interconnect
     output reg  [31:0] hrdata,
     output reg         hready,
     output wire        hresp,
@@ -86,7 +87,9 @@ module ahb_to_apb_bridge (
             case (state)
                 ST_IDLE, ST_RESPONSE, ST_ERROR2: begin
                     // Also accept the next address at the preceding response edge.
-                    if (hsel && htrans[1]) begin
+                    // While another slave holds HREADY low, the address is still waiting
+                    // and the master may cancel it, so it is not accepted yet.
+                    if (hsel && htrans[1] && hready_in) begin
                         paddr <= haddr;
                         pwrite <= hwrite;
                         pprot <= 0; // This interface has no HPROT input.

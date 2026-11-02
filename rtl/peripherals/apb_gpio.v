@@ -24,7 +24,9 @@ module apb_gpio (
 );
 
     assign pready  = 1'b1;
-    assign pslverr = 1'b0;
+    // Offsets past the registers answer with an error instead of aliasing onto them.
+    wire reg_valid = (paddr[11:4] == 8'h00) && (paddr[3:2] != 2'b11);
+    assign pslverr = psel && penable && !reg_valid;
 
     reg [5:0] dir_reg;
 
@@ -38,7 +40,7 @@ module apb_gpio (
     end
 
     // Both registers live in byte lane 0, so only PSTRB[0] can change them.
-    wire apb_write = psel && penable && pwrite;
+    wire apb_write = psel && penable && pwrite && reg_valid;
 
     always @(posedge pclk or negedge preset_n) begin
         if (!preset_n) begin

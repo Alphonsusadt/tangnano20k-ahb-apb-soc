@@ -27,7 +27,9 @@ module apb_uart #(
 );
 
     assign pready  = 1'b1;
-    assign pslverr = 1'b0;
+    // Offsets past the registers answer with an error instead of aliasing onto them.
+    wire reg_valid = (paddr[11:4] == 8'h00);
+    assign pslverr = psel && penable && !reg_valid;
 
     // Registers
     reg [7:0]  tx_data_reg;
@@ -57,8 +59,8 @@ module apb_uart #(
     end
 
     // APB Write
-    wire apb_write = psel && penable && pwrite;
-    wire apb_read  = psel && penable && !pwrite;
+    wire apb_write = psel && penable && pwrite && reg_valid;
+    wire apb_read  = psel && penable && !pwrite && reg_valid;
     reg  tx_start_req;
 
     // Receiver handshake: rx_shift holds the completed byte while rx_done is high.
