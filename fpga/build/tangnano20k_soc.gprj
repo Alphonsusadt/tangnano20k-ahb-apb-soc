@@ -8,6 +8,7 @@
         <File path="../../rtl/soc_top.sv" type="file.verilog" enable="1"/>
         <File path="../../rtl/interconnect/ahb_interconnect.sv" type="file.verilog" enable="1"/>
         <File path="../../rtl/interconnect/ahb_to_apb_bridge.sv" type="file.verilog" enable="1"/>
+        <File path="../../rtl/memory/ahb_sram.sv" type="file.verilog" enable="1"/>
         <File path="../../rtl/peripherals/apb_uart.v" type="file.verilog" enable="1"/>
         <File path="../../rtl/peripherals/apb_spi.v" type="file.verilog" enable="1"/>
         <File path="../../rtl/peripherals/apb_gpio.v" type="file.verilog" enable="1"/>

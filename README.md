@@ -10,7 +10,9 @@ This project is under active development.
 
 | Area | Status |
 | --- | --- |
-| APB SPI master RTL | Unit-level simulation available |
+| APB SPI master RTL | Directed unit regression passes: 192 checks |
+| APB UART RTL | Directed unit regression passes: 62 checks |
+| AHB-Lite SRAM | Unit regression passes: 8,855 checks; SoC-level regression passes: 19 checks; not yet synthesized |
 | AHB address decoder | Implemented and under verification |
 | AHB-to-APB4 bridge | Directed unit regression passes: 1,828 checks; system integration pending |
 | Ibex integration | In progress |
@@ -61,8 +63,10 @@ tangnano-soc-portfolio/
 |   |-- memory_map.md
 |   `-- ahb_bridge_simulation.md
 |-- dv/                           # Simulation testbenches
+|   |-- tb_ahb_sram.sv
 |   |-- tb_ahb_to_apb_bridge.sv
 |   |-- tb_apb_spi.sv
+|   |-- tb_soc_sram.sv
 |   `-- tb_soc_top.sv
 |-- fpga/
 |   |-- tangnano20k.cst            # Board pin constraints
@@ -70,6 +74,7 @@ tangnano-soc-portfolio/
 |-- rtl/
 |   |-- core/                     # CPU integration documentation
 |   |-- interconnect/             # AHB decoder and AHB-to-APB bridge
+|   |-- memory/                   # AHB-Lite SRAM with byte and halfword writes
 |   |-- peripherals/              # APB UART, SPI, and GPIO
 |   `-- soc_top.sv                # SoC integration scaffold
 |-- sw/                           # Bare-metal firmware and linker script
@@ -122,6 +127,27 @@ The self-checking bridge testbench and PowerShell commands are documented in
 [`docs/ahb_bridge_simulation.md`](docs/ahb_bridge_simulation.md), including the
 verified scenarios, regression results, known limitations, and waveform debugging steps.
 
+### Run the SRAM Testbenches
+
+`tb_ahb_sram` tests the SRAM alone, with directed cases, a walking-one address
+test, and a random pipeline checked against a reference model. `tb_soc_sram` runs SRAM transfers through the
+real interconnect and bridge by forcing the undriven CPU bus, because `soc_top`
+has no CPU yet.
+
+```bash
+mkdir -p work
+iverilog -g2012 -s tb_ahb_sram -o work/sim_sram dv/tb_ahb_sram.sv rtl/memory/ahb_sram.sv
+vvp work/sim_sram
+
+iverilog -g2012 -s tb_soc_sram -o work/sim_soc_sram \
+  dv/tb_soc_sram.sv \
+  rtl/soc_top.sv \
+  rtl/memory/*.sv \
+  rtl/interconnect/*.sv \
+  rtl/peripherals/*.v
+vvp work/sim_soc_sram
+```
+
 ### Run the SoC Testbench
 
 The following is an integration command template. Full SoC execution remains
@@ -131,6 +157,7 @@ pending completion of the Ibex core, bus adapter, and firmware integration:
 iverilog -g2012 -o sim_soc \
   dv/tb_soc_top.sv \
   rtl/soc_top.sv \
+  rtl/memory/*.sv \
   rtl/interconnect/*.sv \
   rtl/peripherals/*.v
 

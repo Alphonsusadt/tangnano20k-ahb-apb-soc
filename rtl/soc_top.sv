@@ -64,9 +64,9 @@ module soc_top #(
     wire        dmem_hwrite;
     wire [2:0]  dmem_hsize;
     wire [31:0] dmem_hwdata;
-    reg  [31:0] dmem_hrdata;
-    wire        dmem_hready = 1'b1;
-    wire        dmem_hresp  = 1'b0;
+    wire [31:0] dmem_hrdata;
+    wire        dmem_hready;
+    wire        dmem_hresp;
 
     // Slave 2: AHB-to-APB Bridge
     wire        bridge_hsel;
@@ -151,15 +151,22 @@ module soc_top #(
     // --------------------------------------------------------------------------
     // Data SRAM (32 KB = 8192 words x 32-bit)
     // --------------------------------------------------------------------------
-    reg [31:0] sram_mem [0:8191];
-    always @(posedge clk) begin
-        if (dmem_hsel && dmem_htrans[1]) begin
-            if (dmem_hwrite) begin
-                sram_mem[dmem_haddr[14:2]] <= dmem_hwdata;
-            end
-            dmem_hrdata <= sram_mem[dmem_haddr[14:2]];
-        end
-    end
+    ahb_sram #(
+        .ADDR_WIDTH (15)
+    ) u_sram (
+        .hclk       (clk),
+        .hreset_n   (rst_sys_n),
+        .hsel       (dmem_hsel),
+        .haddr      (dmem_haddr),
+        .htrans     (dmem_htrans),
+        .hwrite     (dmem_hwrite),
+        .hsize      (dmem_hsize),
+        .hwdata     (dmem_hwdata),
+        .hready     (cpu_hready),
+        .hrdata     (dmem_hrdata),
+        .hreadyout  (dmem_hready),
+        .hresp      (dmem_hresp)
+    );
 
     // --------------------------------------------------------------------------
     // APB Interconnect & Peripherals
