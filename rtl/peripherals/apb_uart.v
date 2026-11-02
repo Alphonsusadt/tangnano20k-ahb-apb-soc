@@ -61,12 +61,17 @@ module apb_uart #(
     wire apb_read  = psel && penable && !pwrite;
     reg  tx_start_req;
 
+    // Receiver handshake: rx_shift holds the completed byte while rx_done is high.
+    reg        rx_done;
+    reg  [7:0] rx_shift;
+
     always @(posedge pclk or negedge preset_n) begin
         if (!preset_n) begin
             ctrl_reg     <= 4'b0011; // TX and RX enabled by default
             baud_div_reg <= DEFAULT_BAUD_DIV;
             tx_data_reg  <= 8'h00;
             tx_start_req <= 1'b0;
+            rx_data_reg  <= 8'h00;
             rx_valid     <= 1'b0;
             rx_overflow  <= 1'b0;
         end else begin
@@ -76,6 +81,16 @@ module apb_uart #(
             if (apb_read && (paddr[3:2] == 2'b00)) begin
                 rx_valid    <= 1'b0;
                 rx_overflow <= 1'b0;
+            end
+
+            // A new byte wins over a same-cycle read clear. That read returned the
+            // previous byte, so this one is still unread and is not an overflow.
+            if (rx_done) begin
+                rx_data_reg <= rx_shift;
+                rx_valid    <= 1'b1;
+                if (rx_valid && !(apb_read && (paddr[3:2] == 2'b00))) begin
+                    rx_overflow <= 1'b1;
+                end
             end
 
             if (apb_write) begin
@@ -140,8 +155,7 @@ module apb_uart #(
     // --------------------------------------------------------------------------
     reg [1:0]  rx_sync;
     reg [15:0] rx_clk_cnt;
-    reg [3:0]  rx_bit_cnt;
-    reg [7:0]  rx_shift;
+    reg [3:0]  rx_bit_cnt;     // 9 = start check, 8..1 = data bits, 0 = stop bit
     reg        rx_busy;
 
     always @(posedge pclk or negedge preset_n) begin
@@ -160,39 +174,37 @@ module apb_uart #(
             rx_clk_cnt  <= 16'd0;
             rx_bit_cnt  <= 4'd0;
             rx_shift    <= 8'd0;
-            rx_data_reg <= 8'd0;
-        end else if (rx_en) begin
-            if (!rx_busy) begin
-                if (!rx_in) begin // Start bit detected
-                    rx_busy    <= 1'b1;
-                    rx_clk_cnt <= {1'b0, baud_div_reg[15:1]}; // Sample at mid-bit (div/2)
-                    rx_bit_cnt <= 4'd9;
-                end
-            end else begin
-                if (rx_clk_cnt == 16'd0) begin
-                    rx_clk_cnt <= baud_div_reg;
-                    if (rx_bit_cnt == 4'd9) begin
-                        // Verify start bit is still 0
-                        if (!rx_in) begin
-                            rx_bit_cnt <= rx_bit_cnt - 1'b1;
-                        end else begin
-                            rx_busy <= 1'b0; // False start
-                        end
-                    end else if (rx_bit_cnt > 4'd0) begin
-                        rx_shift   <= {rx_in, rx_shift[7:1]};
-                        rx_bit_cnt <= rx_bit_cnt - 1'b1;
-                        if (rx_bit_cnt == 4'd1) begin
-                            rx_busy     <= 1'b0;
-                            rx_data_reg <= {rx_in, rx_shift[7:1]};
-                            if (rx_valid) begin
-                                rx_overflow <= 1'b1;
-                            end else begin
-                                rx_valid <= 1'b1;
-                            end
-                        end
+            rx_done     <= 1'b0;
+        end else begin
+            rx_done <= 1'b0;
+            if (rx_en) begin
+                if (!rx_busy) begin
+                    if (!rx_in) begin // Start bit detected
+                        rx_busy    <= 1'b1;
+                        rx_clk_cnt <= {1'b0, baud_div_reg[15:1]}; // Sample at mid-bit (div/2)
+                        rx_bit_cnt <= 4'd9;
                     end
                 end else begin
-                    rx_clk_cnt <= rx_clk_cnt - 1'b1;
+                    if (rx_clk_cnt == 16'd0) begin
+                        rx_clk_cnt <= baud_div_reg;
+                        if (rx_bit_cnt == 4'd9) begin
+                            // Verify start bit is still 0
+                            if (!rx_in) begin
+                                rx_bit_cnt <= rx_bit_cnt - 1'b1;
+                            end else begin
+                                rx_busy <= 1'b0; // False start
+                            end
+                        end else if (rx_bit_cnt > 4'd0) begin
+                            rx_shift   <= {rx_in, rx_shift[7:1]};
+                            rx_bit_cnt <= rx_bit_cnt - 1'b1;
+                        end else begin
+                            // Stop bit: a low line is a framing error, so drop the byte.
+                            rx_busy <= 1'b0;
+                            rx_done <= rx_in;
+                        end
+                    end else begin
+                        rx_clk_cnt <= rx_clk_cnt - 1'b1;
+                    end
                 end
             end
         end
