@@ -12,8 +12,8 @@ This project is under active development.
 | --- | --- |
 | APB SPI master RTL | Directed unit regression passes: 192 checks |
 | APB UART RTL | Directed unit regression passes: 62 checks |
-| AHB-Lite SRAM | Unit regression passes: 8,855 checks; SoC-level regression passes: 19 checks; not yet synthesized |
-| AHB address decoder | Implemented and under verification |
+| AHB-Lite SRAM | Unit regression passes: 8,855 checks; SoC-level regression passes: 24 checks; not yet synthesized |
+| AHB interconnect and default slave | Directed unit regression passes: 299 checks; not yet synthesized |
 | AHB-to-APB4 bridge | Directed unit regression passes: 1,828 checks; system integration pending |
 | Ibex integration | In progress |
 | Bare-metal firmware | In progress |
@@ -63,9 +63,11 @@ tangnano-soc-portfolio/
 |   |-- memory_map.md
 |   `-- ahb_bridge_simulation.md
 |-- dv/                           # Simulation testbenches
+|   |-- tb_ahb_interconnect.sv
 |   |-- tb_ahb_sram.sv
 |   |-- tb_ahb_to_apb_bridge.sv
 |   |-- tb_apb_spi.sv
+|   |-- tb_apb_uart.sv
 |   |-- tb_soc_sram.sv
 |   `-- tb_soc_top.sv
 |-- fpga/
@@ -126,6 +128,18 @@ The SPI testbench configures the controller, transmits test bytes, applies a loo
 The self-checking bridge testbench and PowerShell commands are documented in
 [`docs/ahb_bridge_simulation.md`](docs/ahb_bridge_simulation.md), including the
 verified scenarios, regression results, known limitations, and waveform debugging steps.
+
+### Run the Interconnect Testbench
+
+`tb_ahb_interconnect` drives the interconnect with a pipelined master and three
+scripted slaves. It checks decode boundaries, data-phase multiplexing, wait states,
+and the two-cycle ERROR for unmapped addresses.
+
+```bash
+mkdir -p work
+iverilog -g2012 -s tb_ahb_interconnect -o work/sim_ic \n  dv/tb_ahb_interconnect.sv \n  rtl/interconnect/ahb_interconnect.sv
+vvp work/sim_ic
+```
 
 ### Run the SRAM Testbenches
 

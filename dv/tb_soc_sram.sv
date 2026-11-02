@@ -209,6 +209,24 @@ module tb_soc_sram;
         read(SRAM_BASE + 32'h60, SIZE_WORD, val);
         check_eq(val, 32'h600D_600D, "write cancelled after ERROR");
 
+        // One word past the 32 KB SRAM is unmapped: the interconnect answers with a
+        // two-cycle ERROR, and the write must not wrap around onto the first word.
+        write(SRAM_BASE, SIZE_WORD, 32'h1111_1111);
+        xfer(SRAM_BASE + 32'h8000, 1'b1, SIZE_WORD, 32'h2222_2222);
+        htrans <= 2'b00;
+        hwrite <= 1'b0;
+        hwdata <= prev_wdata;
+        @(posedge clk);
+        check_eq({31'h0, hresp}, 32'h1, "past SRAM end: HRESP in the first ERROR cycle");
+        check_eq({31'h0, hready}, 32'h0, "past SRAM end: HREADY in the first ERROR cycle");
+        @(posedge clk);
+        check_eq({31'h0, hresp}, 32'h1, "past SRAM end: HRESP in the second ERROR cycle");
+        check_eq({31'h0, hready}, 32'h1, "past SRAM end: HREADY in the second ERROR cycle");
+        prev_write = 1'b0;
+        hwdata <= GARBAGE;
+        read(SRAM_BASE, SIZE_WORD, val);
+        check_eq(val, 32'h1111_1111, "write past SRAM end does not wrap around");
+
         checks = checks + 1;
         if (hresp !== 1'b0) begin
             failures = failures + 1;

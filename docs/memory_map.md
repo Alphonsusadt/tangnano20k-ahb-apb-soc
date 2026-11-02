@@ -17,6 +17,8 @@ Sistem menggunakan bus **AHB-Lite 32-bit** sebagai interkoneksi utama untuk CPU,
 | `0x4000_2000` | `0x4000_2FFF` | 4 KB | APB | **APB GPIO (LED & Key Button)** | R / W |
 | `0x4000_3000` | `0x4FFF_FFFF` | - | APB | *Reserved / Ekstensi Masa Depan* | - |
 
+Transfer ke alamat di luar tabel ini dijawab oleh default slave di `ahb_interconnect` dengan `ERROR` dua siklus. Rentang *Reserved* dijawab `ERROR` oleh AHB-to-APB bridge.
+
 ---
 
 ## 2. Register Periferal APB UART (`0x4000_0000`)

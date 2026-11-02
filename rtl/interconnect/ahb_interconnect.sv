@@ -1,6 +1,8 @@
 // ==============================================================================
 // Module: ahb_interconnect
-// Description: AHB-Lite Address Decoder & Multiplexer
+// Description: AHB-Lite Address Decoder & Multiplexer, with a built-in default
+//              slave that answers transfers to unmapped addresses with a two-cycle
+//              ERROR, so a bad address raises a bus fault instead of passing as OKAY.
 // ==============================================================================
 
 module ahb_interconnect (
@@ -54,9 +56,9 @@ module ahb_interconnect (
 );
 
     // Address phase decoding
-    wire sel_imem = (s_haddr[31:16] == 16'h0000); // 0x0000_xxxx
-    wire sel_dmem = (s_haddr[31:16] == 16'h2000); // 0x2000_xxxx
-    wire sel_apb  = (s_haddr[31:28] == 4'h4);     // 0x4xxx_xxxx
+    wire sel_imem = (s_haddr[31:15] == 17'h00000); // 0x0000_0000 - 0x0000_7FFF
+    wire sel_dmem = (s_haddr[31:15] == 17'h04000); // 0x2000_0000 - 0x2000_7FFF
+    wire sel_apb  = (s_haddr[31:28] == 4'h4);      // 0x4xxx_xxxx
 
     assign m0_hsel = sel_imem;
     assign m1_hsel = sel_dmem;
@@ -91,6 +93,25 @@ module ahb_interconnect (
         end
     end
 
+    // Default slave. A transfer is accepted only while HREADY is high, so an
+    // unmapped address still waiting behind a stalled slave does not start ERROR.
+    // The first ERROR cycle holds HREADY low, which gives the master one cycle to
+    // cancel the transfer it has already placed on the bus. IDLE and BUSY need no
+    // response beyond a zero-wait OKAY, so they never start ERROR.
+    wire unmapped = s_htrans[1] && !(sel_imem || sel_dmem || sel_apb);
+
+    reg err_first_q;
+    reg err_second_q;
+    always @(posedge hclk or negedge hreset_n) begin
+        if (!hreset_n) begin
+            err_first_q  <= 1'b0;
+            err_second_q <= 1'b0;
+        end else begin
+            err_first_q  <= s_hready && unmapped;
+            err_second_q <= err_first_q;
+        end
+    end
+
     // Read Data and Ready multiplexing
     always @(*) begin
         case (sel_q)
@@ -111,8 +132,8 @@ module ahb_interconnect (
             end
             default: begin
                 s_hrdata = 32'h0;
-                s_hready = 1'b1;
-                s_hresp  = 1'b0;
+                s_hready = !err_first_q;
+                s_hresp  = err_first_q || err_second_q;
             end
         endcase
     end
