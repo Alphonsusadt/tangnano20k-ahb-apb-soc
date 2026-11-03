@@ -18,6 +18,7 @@ This project is under active development.
 | AHB-to-APB4 bridge | Directed unit regression passes: 1,872 checks |
 | SoC system without a CPU | Regression through the bus to the chip pins passes: 15,897 checks, including random traffic |
 | FPGA image with self-test master | Regression from the board pins passes: 175 checks, including injected faults |
+| OBI-to-AHB adapter | Random regression passes: 1,351,409 checks across five traffic and wait-state profiles; not yet connected to Ibex |
 | Ibex integration | In progress |
 | Bare-metal firmware | In progress |
 | FPGA synthesis and timing | Gowin place and route completes; 27 MHz constraint met in timing analysis (see [FPGA Implementation](#fpga-implementation)) |
@@ -75,6 +76,7 @@ tangnano-soc-portfolio/
 |   |-- tb_apb_uart.sv
 |   |-- tb_soc_sram.sv
 |   |-- tb_fpga_top.sv
+|   |-- tb_obi_to_ahb.sv
 |   |-- tb_soc_system.sv
 |   `-- tb_soc_top.sv
 |-- fpga/
@@ -86,7 +88,7 @@ tangnano-soc-portfolio/
 |-- rtl/
 |   |-- core/                     # CPU integration documentation
 |   |-- fpga/                     # Board wrapper and self-test AHB master
-|   |-- interconnect/             # AHB decoder and AHB-to-APB bridge
+|   |-- interconnect/             # AHB decoder, AHB-to-APB bridge, and OBI-to-AHB adapter
 |   |-- memory/                   # AHB-Lite SRAM with byte and halfword writes
 |   |-- peripherals/              # APB UART, SPI, and GPIO
 |   `-- soc_top.sv                # SoC integration scaffold
