@@ -4,7 +4,10 @@
 // ==============================================================================
 
 module soc_top #(
-    parameter BOOT_HEX_FILE = ""
+    parameter BOOT_HEX_FILE = "",
+    // Drives the cpu_* master port from ahb_selftest_master until the CPU is integrated.
+    parameter USE_SELFTEST_MASTER = 0,
+    parameter HEARTBEAT_BIT = 23
 )(
     input  wire        clk_27m,
     input  wire        rst_n,
@@ -42,6 +45,25 @@ module soc_top #(
     wire [31:0] cpu_hrdata;
     wire        cpu_hready;
     wire        cpu_hresp;
+
+    generate
+        if (USE_SELFTEST_MASTER != 0) begin : g_selftest
+            ahb_selftest_master #(
+                .HEARTBEAT_BIT (HEARTBEAT_BIT)
+            ) u_selftest (
+                .hclk     (clk),
+                .hreset_n (rst_sys_n),
+                .haddr    (cpu_haddr),
+                .htrans   (cpu_htrans),
+                .hwrite   (cpu_hwrite),
+                .hsize    (cpu_hsize),
+                .hwdata   (cpu_hwdata),
+                .hrdata   (cpu_hrdata),
+                .hready   (cpu_hready),
+                .hresp    (cpu_hresp)
+            );
+        end
+    endgenerate
 
     // --------------------------------------------------------------------------
     // AHB Slaves

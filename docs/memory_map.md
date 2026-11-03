@@ -27,7 +27,7 @@ Tulis byte dan halfword ke register APB mengikuti `PSTRB`: satu byte register ha
 
 ## 2. Register Periferal APB UART (`0x4000_0000`)
 
-Modul APB UART menyediakan komunikasi serial asinkron 8-N-1 default ke chip antarmuka USB host BL702 pada Tang Nano 20K.
+Modul APB UART menyediakan komunikasi serial asinkron 8-N-1 default ke chip antarmuka USB host BL616 pada Tang Nano 20K.
 
 ### Ringkasan Register UART
 | Offset | Nama Register | Akses | Reset Value | Deskripsi |
@@ -93,5 +93,5 @@ Mengontrol LED onboard Tang Nano 20K dan membaca tombol (keys).
 | Offset | Nama Register | Akses | Reset Value | Deskripsi |
 | :--- | :--- | :--- | :--- | :--- |
 | `0x00` | `GPIO_OUT` | R/W | `0x0000003F` | Bit [5:0] mengontrol status 6 LED onboard (Active Low). |
-| `0x04` | `GPIO_IN` | RO | `0x00000003` | Bit [1:0] membaca status tombol S1 (PIN 88) dan S2 (PIN 87). |
+| `0x04` | `GPIO_IN` | RO | `0x00000001` | Bit [1]: tombol S2 (PIN 87), `1` = ditekan. Bit [0]: reset internal, selalu `1` saat SoC berjalan, karena S1 (PIN 88) dipakai sebagai reset. |
 | `0x08` | `GPIO_DIR` | R/W | `0x0000003F` | `1` = Output (untuk LED), `0` = Input. |

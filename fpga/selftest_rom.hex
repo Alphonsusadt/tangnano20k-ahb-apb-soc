@@ -1,0 +1,5 @@
+// Known words checked by ahb_selftest_master: the first and the last ROM word.
+@0000
+534F4331
+@1FFF
+A5C35A3C

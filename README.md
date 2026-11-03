@@ -12,14 +12,16 @@ This project is under active development.
 | --- | --- |
 | APB SPI master RTL | Directed unit regression passes: 192 checks |
 | APB UART RTL | Directed unit regression passes: 62 checks |
-| AHB-Lite SRAM | Unit regression passes: 8,855 checks; SoC-level regression passes: 27 checks; not yet synthesized |
-| AHB interconnect and default slave | Directed unit regression passes: 299 checks; not yet synthesized |
-| APB write strobes (GPIO, UART, SPI) | Directed regression passes: 62 checks; not yet synthesized |
-| AHB-to-APB4 bridge | Directed unit regression passes: 1,872 checks; not yet synthesized |
-| SoC system without a CPU | Regression through the bus to the chip pins passes: 15,897 checks, including random traffic; not yet synthesized |
+| AHB-Lite SRAM | Unit regression passes: 8,855 checks; SoC-level regression passes: 27 checks |
+| AHB interconnect and default slave | Directed unit regression passes: 299 checks |
+| APB write strobes (GPIO, UART, SPI) | Directed regression passes: 62 checks |
+| AHB-to-APB4 bridge | Directed unit regression passes: 1,872 checks |
+| SoC system without a CPU | Regression through the bus to the chip pins passes: 15,897 checks, including random traffic |
+| FPGA image with self-test master | Regression from the board pins passes: 175 checks, including injected faults |
 | Ibex integration | In progress |
 | Bare-metal firmware | In progress |
-| FPGA synthesis and timing results | To be documented |
+| FPGA synthesis and timing | Gowin place and route completes; 27 MHz constraint met in timing analysis (see [FPGA Implementation](#fpga-implementation)) |
+| FPGA board test | Self-test image runs on a Tang Nano 20K: `SOC PASS` report, UART echo, LEDs, and S2 confirmed by hand. SPI pins not yet measured |
 
 The repository will be updated as each integration stage is verified. Results are only marked as complete after they have been reproduced through simulation or FPGA reports.
 
@@ -72,13 +74,18 @@ tangnano-soc-portfolio/
 |   |-- tb_apb_spi.sv
 |   |-- tb_apb_uart.sv
 |   |-- tb_soc_sram.sv
+|   |-- tb_fpga_top.sv
 |   |-- tb_soc_system.sv
 |   `-- tb_soc_top.sv
 |-- fpga/
+|   |-- build.tcl                  # Batch build script
+|   |-- selftest_rom.hex           # ROM image checked by the self-test
 |   |-- tangnano20k.cst            # Board pin constraints
+|   |-- tangnano20k.sdc            # Clock constraint
 |   `-- build/                    # Gowin project configuration
 |-- rtl/
 |   |-- core/                     # CPU integration documentation
+|   |-- fpga/                     # Board wrapper and self-test AHB master
 |   |-- interconnect/             # AHB decoder and AHB-to-APB bridge
 |   |-- memory/                   # AHB-Lite SRAM with byte and halfword writes
 |   |-- peripherals/              # APB UART, SPI, and GPIO
@@ -237,17 +244,51 @@ The generated `firmware.hex` can be loaded into the instruction ROM using `$read
 
 The target device is the Gowin GW2AR-LV18QN88C8/I7 on the Sipeed Tang Nano 20K.
 
-1. Open `fpga/build/tangnano20k_soc.gprj` in Gowin EDA.
-2. Add the RTL source files and `fpga/tangnano20k.cst` if they are not already included.
-3. Run synthesis.
-4. Run place and route.
-5. Review the utilization and timing reports.
-6. Program the generated bitstream using Gowin Programmer or `openFPGALoader`.
+The CPU is not integrated yet, so `rtl/fpga/fpga_top.sv` drives the bus with a synthesizable self-test master. Without a master, synthesis removes the interconnect and peripherals because `cpu_*` has no driver.
 
-Example command:
+Build from `fpga/build/`:
 
 ```bash
-openFPGALoader -b tangnano20k path/to/tangnano20k_soc.fs
+gw_sh ../build.tcl
+```
+
+Check the build log for warning `EX3988`. It means the ROM image was not found, and the build still completes with an empty ROM.
+
+Results with Gowin V1.9.11.03 Education:
+
+| Metric | Result |
+| --- | --- |
+| Logic | 735 / 20,736 (632 LUT, 103 ALU) |
+| Registers | 484 / 15,750 |
+| Block RAM | 24 / 46 with the self-test image; 32 / 46 with every ROM word filled |
+| Timing | 27 MHz constraint met, estimated Fmax 85.0 MHz |
+
+These figures cover the self-test master, not Ibex, so they will change when the CPU is integrated. Only the clock is constrained; I/O timing is not. The tool also warns (`PR1014`) that the clock from pin 4 uses generic routing.
+
+To test on the board, program SRAM from the repository root and open the USB serial port at 115200 baud:
+
+```bash
+programmer_cli --device GW2AR-18C --run 2 --fsFile fpga/build/impl/pnr/tangnano20k_soc.fs
+```
+
+| Observation | Meaning |
+| --- | --- |
+| `SOC PASS` on the serial port after S1 is pressed | ROM, SRAM, bus errors, GPIO, and SPI checks passed |
+| `SOC FAIL xx` | Script step `xx` (hex) in `ahb_selftest_master.sv` failed |
+| Typed characters echo back | UART receive and transmit work through the bus |
+| LED0 blinks, LED1 on | Heartbeat and pass |
+| LED2 on | Self-test failed |
+| LED3 follows S2 | Button input reaches the LEDs through the bus |
+
+To check SPI receive data, jumper pin 74 (MOSI) to pin 71 (MISO). The self-test sends one byte but does not check what comes back.
+
+Run the matching simulation from the repository root:
+
+```bash
+iverilog -g2012 -s tb_fpga_top -o work/sim_fpga \
+  dv/tb_fpga_top.sv rtl/fpga/*.sv rtl/soc_top.sv rtl/memory/ahb_sram.sv \
+  rtl/interconnect/*.sv rtl/peripherals/*.v
+vvp work/sim_fpga
 ```
 
 ## Engineering Focus

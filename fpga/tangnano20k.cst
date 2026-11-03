@@ -11,22 +11,23 @@
 IO_LOC  "clk_27m" 4;
 IO_PORT "clk_27m" IO_TYPE=LVCMOS33 PULL_MODE=UP;
 
-// Pushbutton S1 (Key 1 / Active-Low Reset)
-IO_LOC  "rst_n" 88;
-IO_PORT "rst_n" IO_TYPE=LVCMOS33 PULL_MODE=UP;
+// Both buttons are active high with a 1 k pull-down on the board (schematic rev 3921).
+// Pushbutton S1 (Key 1 / Reset)
+IO_LOC  "btn_s1" 88;
+IO_PORT "btn_s1" IO_TYPE=LVCMOS33 PULL_MODE=NONE;
 
 // Pushbutton S2 (Key 2 / User Input)
 IO_LOC  "btn_s2" 87;
-IO_PORT "btn_s2" IO_TYPE=LVCMOS33 PULL_MODE=UP;
+IO_PORT "btn_s2" IO_TYPE=LVCMOS33 PULL_MODE=NONE;
 
 // ------------------------------------------------------------------------------
-// USB-to-UART Interface (On-board Bouffalo Lab BL702 bridge)
+// USB-to-UART Interface (On-board Bouffalo Lab BL616 bridge)
 // ------------------------------------------------------------------------------
-// FPGA UART TX pin -> BL702 RX pin
+// FPGA UART TX pin -> BL616 RX pin
 IO_LOC  "uart_tx" 69;
 IO_PORT "uart_tx" IO_TYPE=LVCMOS33 DRIVE=8 PULL_MODE=UP;
 
-// FPGA UART RX pin <- BL702 TX pin
+// FPGA UART RX pin <- BL616 TX pin
 IO_LOC  "uart_rx" 70;
 IO_PORT "uart_rx" IO_TYPE=LVCMOS33 PULL_MODE=UP;
 
@@ -53,6 +54,7 @@ IO_PORT "led[5]" IO_TYPE=LVCMOS33 DRIVE=8 PULL_MODE=UP;
 
 // ------------------------------------------------------------------------------
 // SPI Master Interface (Header Pins)
+// Pins 75 and 76 also connect to the BL616, so they are avoided here.
 // ------------------------------------------------------------------------------
 // SPI Clock
 IO_LOC  "spi_sck" 73;
@@ -63,7 +65,7 @@ IO_LOC  "spi_mosi" 74;
 IO_PORT "spi_mosi" IO_TYPE=LVCMOS33 DRIVE=8 PULL_MODE=NONE;
 
 // SPI Master In Slave Out
-IO_LOC  "spi_miso" 75;
+IO_LOC  "spi_miso" 71;
 IO_PORT "spi_miso" IO_TYPE=LVCMOS33 PULL_MODE=UP;
 
 // SPI Chip Select (Active Low)
