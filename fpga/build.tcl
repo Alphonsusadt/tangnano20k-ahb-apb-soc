@@ -1,7 +1,7 @@
 # Batch build for the Tang Nano 20K. Run from fpga/build/, after building sw/firmware.hex:
 #   gw_sh ../build.tcl
 # Check the log for warning EX3988, which means the ROM image was not found.
-set ibex ../../../ibex-lowrisc ;# lowRISC Ibex at commit f4515520
+set ibex ../../third_party/ibex ;# lowRISC Ibex at commit f4515520
 
 set_device GW2AR-LV18QN88C8/I7 -device_version C
 

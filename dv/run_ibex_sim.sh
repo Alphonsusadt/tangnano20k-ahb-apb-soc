@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 # Builds the firmware and simulates Ibex in soc_top with Verilator.
 # Run from the repository root on Linux or WSL:
-#   IBEX_DIR=/path/to/lowRISC/ibex dv/run_ibex_sim.sh
+#   bash dv/run_ibex_sim.sh
 # Tested with Ibex f4515520, Verilator 5.024, and riscv64-unknown-elf-gcc 10.2.
 
 set -euo pipefail
 
-IBEX_DIR="${IBEX_DIR:-/mnt/d/Portofolio_Soc/ibex-lowrisc}"
+IBEX_DIR=third_party/ibex
 OBJ_DIR="${OBJ_DIR:-/tmp/tangnano_ibex_obj}"
 PATH="$HOME/.local/bin:$PATH"
 

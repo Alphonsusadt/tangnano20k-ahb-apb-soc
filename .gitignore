@@ -65,6 +65,7 @@ desktop.ini
 *.md
 !README.md
 !/docs/**/*.md
+!/third_party/**/*.md
 !LICENSE.md
 !CONTRIBUTING.md
 !CHANGELOG.md

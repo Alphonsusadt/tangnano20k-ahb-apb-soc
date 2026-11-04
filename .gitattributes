@@ -1,0 +1,6 @@
+# Keep the vendored copy byte-identical to upstream, and out of the language statistics.
+third_party/** -text linguist-vendored
+
+# These run under Linux or WSL, and CRLF breaks them on a Windows checkout.
+*.sh text eol=lf
+sw/Makefile text eol=lf

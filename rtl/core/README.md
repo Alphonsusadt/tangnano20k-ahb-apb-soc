@@ -1,23 +1,6 @@
-# lowRISC Ibex Core Integration
+# Ibex integration
 
-Direktori ini diperuntukkan bagi sumber RTL core **lowRISC Ibex** (RISC-V 32-bit RV32IMC).
+- `ibex_ahb_cpu.sv` configures `ibex_top` and connects its two OBI ports to `obi_to_ahb_adapter`.
+- `prim_clock_gating.sv` passes the clock straight through, because a latch-based gate adds skew on the FPGA fabric.
 
-## Cara Menambahkan lowRISC Ibex
-
-Anda dapat menambahkan repositori resmi lowRISC Ibex melalui git submodule:
-
-```bash
-git submodule add https://github.com/lowRISC/ibex.git rtl/core/ibex
-```
-
-Atau menggunakan vendoring script / generator fusesoc:
-```bash
-fusesoc --cores-root=. run --target=synth lowrisc:ibex:top_artya7
-```
-
-## Parameter Rekomendasi untuk Tang Nano 20K
-- **RV32M**: `ibex_pkg::RV32MFast` atau `RV32MSlow` (menghemat LUT)
-- **RV32B**: `ibex_pkg::RV32BNone`
-- **BranchTargetALU**: `1'b1`
-- **MultiplierImplementation**: `ibex_pkg::MultiplierFast`
-- **ICache**: Opsional (Direct-mapped atau 2-way)
+The Ibex source is in [`third_party/ibex`](../../third_party/ibex/VENDORED.md).

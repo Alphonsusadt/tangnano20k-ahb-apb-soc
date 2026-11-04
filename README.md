@@ -4,6 +4,26 @@ An educational RISC-V SoC platform targeting the Sipeed Tang Nano 20K FPGA. The 
 
 The main engineering goals are to practice RTL design, bus integration, hardware/software co-design, simulation-based verification, and FPGA implementation using an ASIC-oriented design mindset.
 
+## Quick Start
+
+The Ibex core is already in this repository, in [`third_party/ibex`](third_party/ibex/VENDORED.md). A plain `git clone` is enough: there are no submodules, nothing to download, and no integration to do.
+
+```bash
+git clone https://github.com/Alphonsusadt/tangnano20k-ahb-apb-soc.git
+cd tangnano20k-ahb-apb-soc
+```
+
+| Goal | Tools | Run from the repository root |
+| --- | --- | --- |
+| Run firmware on Ibex in simulation | Verilator 5 and `riscv64-unknown-elf-gcc`, on Linux or WSL | `bash dv/run_ibex_sim.sh` |
+| Build the firmware | `riscv64-unknown-elf-gcc`, on Linux or WSL | `make -C sw` |
+| Build the bitstream | Gowin EDA, after building the firmware | `cd fpga/build && gw_sh ../build.tcl` |
+| Program the board | Gowin Programmer | See [FPGA Implementation](#fpga-implementation) |
+
+`gw_sh` and `programmer_cli` are in the `IDE/bin` and `Programmer/bin` folders of the Gowin install, which the installer may not add to `PATH`. The peripheral and bus testbenches need only Icarus Verilog; see [Verification](#verification).
+
+A passing simulation ends each of its two runs with `RESULT: <n> checks, 0 failures`.
+
 ## Project Status
 
 This project is under active development.
@@ -93,8 +113,9 @@ tangnano-soc-portfolio/
 |   |-- interconnect/             # AHB decoder, AHB-to-APB bridge, and OBI-to-AHB adapter
 |   |-- memory/                   # AHB-Lite SRAM with byte and halfword writes
 |   |-- peripherals/              # APB UART, SPI, and GPIO
-|   `-- soc_top.sv                # SoC integration scaffold
+|   `-- soc_top.sv                # SoC top level
 |-- sw/                           # Bare-metal firmware and linker script
+|-- third_party/ibex/             # Unmodified lowRISC Ibex source, Apache 2.0
 `-- README.md
 ```
 
@@ -152,7 +173,9 @@ and the two-cycle ERROR for unmapped addresses.
 
 ```bash
 mkdir -p work
-iverilog -g2012 -s tb_ahb_interconnect -o work/sim_ic \n  dv/tb_ahb_interconnect.sv \n  rtl/interconnect/ahb_interconnect.sv
+iverilog -g2012 -s tb_ahb_interconnect -o work/sim_ic \
+  dv/tb_ahb_interconnect.sv \
+  rtl/interconnect/ahb_interconnect.sv
 vvp work/sim_ic
 ```
 
@@ -181,7 +204,9 @@ vvp work/sim_system
 
 ```bash
 mkdir -p work
-iverilog -g2012 -s tb_apb_pstrb -o work/sim_pstrb \n  dv/tb_apb_pstrb.sv \n  rtl/peripherals/*.v
+iverilog -g2012 -s tb_apb_pstrb -o work/sim_pstrb \
+  dv/tb_apb_pstrb.sv \
+  rtl/peripherals/*.v
 vvp work/sim_pstrb
 ```
 
@@ -189,8 +214,8 @@ vvp work/sim_pstrb
 
 `tb_ahb_sram` tests the SRAM alone, with directed cases, a walking-one address
 test, and a random pipeline checked against a reference model. `tb_soc_sram` runs SRAM transfers through the
-real interconnect and bridge by forcing the undriven CPU bus, because `soc_top`
-has no CPU yet.
+real interconnect and bridge by forcing the undriven CPU bus, with the CPU left
+out (`USE_IBEX` is 0).
 
 ```bash
 mkdir -p work
@@ -226,27 +251,17 @@ The SoC testbench generates a 27 MHz clock, releases reset, monitors the UART TX
 
 ## Build the Firmware
 
-The firmware requires a 32-bit RISC-V GNU toolchain:
+The firmware builds on Linux or WSL with `riscv64-unknown-elf-gcc`, which also targets RV32:
 
 ```bash
-cd sw
-riscv32-unknown-elf-gcc \
-  -march=rv32imc \
-  -mabi=ilp32 \
-  -T link.ld \
-  -nostartfiles \
-  -O2 \
-  -o firmware.elf main.c
-
-riscv32-unknown-elf-objcopy -O verilog firmware.elf firmware.hex
-riscv32-unknown-elf-objdump -d firmware.elf > firmware.dis
+make -C sw
 ```
 
-The generated `firmware.hex` can be loaded into the instruction ROM using `$readmemh` during simulation or FPGA initialization.
+This writes `sw/firmware.hex`, with one 32-bit word per line, which `$readmemh` loads into the instruction ROM. To use a toolchain with another prefix, pass it to `make`, for example `make -C sw CROSS=riscv32-unknown-elf-`.
 
 ## FPGA Implementation
 
-The target device is the Gowin GW2AR-LV18QN88C8/I7 on the Sipeed Tang Nano 20K. `rtl/fpga/fpga_top.sv` wraps the SoC for the board, and the build needs [lowRISC Ibex](https://github.com/lowRISC/ibex) at commit `f4515520` in a folder named `ibex-lowrisc` next to this repository.
+The target device is the Gowin GW2AR-LV18QN88C8/I7 on the Sipeed Tang Nano 20K. `rtl/fpga/fpga_top.sv` wraps the SoC for the board. The [lowRISC Ibex](https://github.com/lowRISC/ibex) files it needs are in `third_party/ibex`, copied unchanged from commit `f4515520`.
 
 Build the firmware on Linux or WSL, then build the bitstream from `fpga/build/`. The batch script is the supported flow; the `.gprj` file does not list the Ibex sources.
 
@@ -288,7 +303,7 @@ programmer_cli --device GW2AR-18C --run 2 --fsFile fpga/build/impl/pnr/tangnano2
 Run the matching simulation on Linux or WSL with Verilator 5.024 and `riscv64-unknown-elf-gcc`:
 
 ```bash
-dv/run_ibex_sim.sh
+bash dv/run_ibex_sim.sh
 ```
 
 Setting `USE_IBEX` to 0 and `BOOT_HEX_FILE` to `../selftest_rom.hex` in `fpga_top` builds the CPU-free self-test image instead. `dv/tb_fpga_top.sv` simulates that image:
@@ -331,4 +346,4 @@ This project is intended to demonstrate practical understanding of:
 
 ## License
 
-This repository contains original integration and peripheral RTL together with third-party components. Each third-party component remains subject to its original license. Refer to the Ibex repository and its license files for the licensing terms of the CPU core.
+This repository contains original integration and peripheral RTL together with third-party components. Each third-party component remains subject to its original license. The CPU core in `third_party/ibex` is licensed under Apache 2.0; see `third_party/ibex/LICENSE`.
