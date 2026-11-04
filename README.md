@@ -17,12 +17,12 @@ This project is under active development.
 | APB write strobes (GPIO, UART, SPI) | Directed regression passes: 62 checks |
 | AHB-to-APB4 bridge | Directed unit regression passes: 1,872 checks |
 | SoC system without a CPU | Regression through the bus to the chip pins passes: 15,897 checks, including random traffic |
-| FPGA image with self-test master | Regression from the board pins passes: 175 checks, including injected faults |
-| OBI-to-AHB adapter | Random regression passes: 1,351,409 checks across five traffic and wait-state profiles; not yet connected to Ibex |
-| Ibex integration | In progress |
-| Bare-metal firmware | In progress |
-| FPGA synthesis and timing | Gowin place and route completes; 27 MHz constraint met in timing analysis (see [FPGA Implementation](#fpga-implementation)) |
-| FPGA board test | Self-test image runs on a Tang Nano 20K: `SOC PASS` report, UART echo, LEDs, and S2 confirmed by hand. SPI pins not yet measured |
+| FPGA self-test image, no CPU | Regression from the board pins passes: 175 checks, including injected faults |
+| OBI-to-AHB adapter | Random regression passes: 1,351,409 checks across five traffic and wait-state profiles |
+| Ibex integration | Firmware runs on Ibex in Verilator simulation: 52 checks from the chip pins, including a misaligned store trap |
+| Bare-metal firmware | Self-test, UART echo, and LED firmware runs in simulation and on the board |
+| FPGA synthesis and timing with Ibex | Gowin place and route completes; 27 MHz constraint met in timing analysis (see [FPGA Implementation](#fpga-implementation)) |
+| FPGA board test | CPU-free self-test image runs on a Tang Nano 20K: `SOC PASS` report, UART echo, LEDs, and S2 confirmed by hand. Ibex image runs on the same board: `IBEX PASS` report, UART echo, LEDs, and S2 confirmed by hand. SPI pins not yet measured |
 
 The repository will be updated as each integration stage is verified. Results are only marked as complete after they have been reproduced through simulation or FPGA reports.
 
@@ -77,6 +77,8 @@ tangnano-soc-portfolio/
 |   |-- tb_soc_sram.sv
 |   |-- tb_fpga_top.sv
 |   |-- tb_obi_to_ahb.sv
+|   |-- run_ibex_sim.sh
+|   |-- tb_soc_ibex.sv
 |   |-- tb_soc_system.sv
 |   `-- tb_soc_top.sv
 |-- fpga/
@@ -86,7 +88,7 @@ tangnano-soc-portfolio/
 |   |-- tangnano20k.sdc            # Clock constraint
 |   `-- build/                    # Gowin project configuration
 |-- rtl/
-|   |-- core/                     # CPU integration documentation
+|   |-- core/                     # Ibex wrapper with the bus adapter, and FPGA clock gate
 |   |-- fpga/                     # Board wrapper and self-test AHB master
 |   |-- interconnect/             # AHB decoder, AHB-to-APB bridge, and OBI-to-AHB adapter
 |   |-- memory/                   # AHB-Lite SRAM with byte and halfword writes
@@ -206,8 +208,8 @@ vvp work/sim_soc_sram
 
 ### Run the SoC Testbench
 
-The following is an integration command template. Full SoC execution remains
-pending completion of the Ibex core, bus adapter, and firmware integration:
+`tb_soc_top` is a smoke template with no CPU and no automatic checks, so its
+message proves nothing. `dv/run_ibex_sim.sh` covers firmware running on Ibex:
 
 ```bash
 iverilog -g2012 -o sim_soc \
@@ -244,28 +246,28 @@ The generated `firmware.hex` can be loaded into the instruction ROM using `$read
 
 ## FPGA Implementation
 
-The target device is the Gowin GW2AR-LV18QN88C8/I7 on the Sipeed Tang Nano 20K.
+The target device is the Gowin GW2AR-LV18QN88C8/I7 on the Sipeed Tang Nano 20K. `rtl/fpga/fpga_top.sv` wraps the SoC for the board, and the build needs [lowRISC Ibex](https://github.com/lowRISC/ibex) at commit `f4515520` in a folder named `ibex-lowrisc` next to this repository.
 
-The CPU is not integrated yet, so `rtl/fpga/fpga_top.sv` drives the bus with a synthesizable self-test master. Without a master, synthesis removes the interconnect and peripherals because `cpu_*` has no driver.
-
-Build from `fpga/build/`:
+Build the firmware on Linux or WSL, then build the bitstream from `fpga/build/`. The batch script is the supported flow; the `.gprj` file does not list the Ibex sources.
 
 ```bash
+make -C sw
+cd fpga/build
 gw_sh ../build.tcl
 ```
 
 Check the build log for warning `EX3988`. It means the ROM image was not found, and the build still completes with an empty ROM.
 
-Results with Gowin V1.9.11.03 Education:
+Results with Gowin V1.9.11.03 Education and the firmware image:
 
 | Metric | Result |
 | --- | --- |
-| Logic | 735 / 20,736 (632 LUT, 103 ALU) |
-| Registers | 484 / 15,750 |
-| Block RAM | 24 / 46 with the self-test image; 32 / 46 with every ROM word filled |
-| Timing | 27 MHz constraint met, estimated Fmax 85.0 MHz |
+| Logic | 5,360 / 20,736 (5,261 LUT, 99 ALU) |
+| Registers | 2,257 / 15,750 |
+| Block RAM | 17 / 46 |
+| Timing | 27 MHz constraint met, estimated Fmax 34.6 MHz |
 
-These figures cover the self-test master, not Ibex, so they will change when the CPU is integrated. Only the clock is constrained; I/O timing is not. The tool also warns (`PR1014`) that the clock from pin 4 uses generic routing.
+Block RAM use grows with the firmware, because synthesis trims unused ROM contents. Only the clock is constrained; I/O timing is not. The tool also warns (`PR1014`) that the clock from pin 4 uses generic routing.
 
 To test on the board, program SRAM from the repository root and open the USB serial port at 115200 baud:
 
@@ -275,21 +277,26 @@ programmer_cli --device GW2AR-18C --run 2 --fsFile fpga/build/impl/pnr/tangnano2
 
 | Observation | Meaning |
 | --- | --- |
-| `SOC PASS` on the serial port after S1 is pressed | ROM, SRAM, bus errors, GPIO, and SPI checks passed |
-| `SOC FAIL xx` | Script step `xx` (hex) in `ahb_selftest_master.sv` failed |
-| Typed characters echo back | UART receive and transmit work through the bus |
+| `IBEX PASS` on the serial port after S1 is pressed | The firmware self-test passed on the CPU |
+| `IBEX FAIL xx` | Test `xx` (hex) in `sw/main.c` failed |
+| `!` | The CPU took a trap |
+| Typed characters echo back | UART receive and transmit work through the CPU |
 | LED0 blinks, LED1 on | Heartbeat and pass |
 | LED2 on | Self-test failed |
-| LED3 follows S2 | Button input reaches the LEDs through the bus |
+| LED3 follows S2 | Button input reaches the LEDs through the CPU |
 
-To check SPI receive data, jumper pin 74 (MOSI) to pin 71 (MISO). The self-test sends one byte but does not check what comes back.
+Run the matching simulation on Linux or WSL with Verilator 5.024 and `riscv64-unknown-elf-gcc`:
 
-Run the matching simulation from the repository root:
+```bash
+dv/run_ibex_sim.sh
+```
+
+Setting `USE_IBEX` to 0 and `BOOT_HEX_FILE` to `../selftest_rom.hex` in `fpga_top` builds the CPU-free self-test image instead. `dv/tb_fpga_top.sv` simulates that image:
 
 ```bash
 iverilog -g2012 -s tb_fpga_top -o work/sim_fpga \
-  dv/tb_fpga_top.sv rtl/fpga/*.sv rtl/soc_top.sv rtl/memory/ahb_sram.sv \
-  rtl/interconnect/*.sv rtl/peripherals/*.v
+  dv/tb_fpga_top.sv rtl/fpga/fpga_top.sv rtl/fpga/ahb_selftest_master.sv \
+  rtl/soc_top.sv rtl/memory/ahb_sram.sv rtl/interconnect/*.sv rtl/peripherals/*.v
 vvp work/sim_fpga
 ```
 
@@ -308,18 +315,18 @@ This project is intended to demonstrate practical understanding of:
 
 ## Known Limitations
 
-- The complete Ibex-to-system-bus integration is still being finalized.
 - The current verification environment is primarily directed testing; coverage-driven and formal verification are future improvements.
-- FPGA timing and utilization values will be added after the Gowin implementation flow has been completed.
+- Only the FPGA clock is constrained; I/O timing is not.
+- CPU interrupts and the debug module are not connected.
+- The SPI pins have not been measured on the board.
 - The design is an educational FPGA SoC and is not yet a silicon-qualified ASIC implementation.
 
 ## Future Work
 
-- Complete and document the Ibex CPU bus adapter.
 - Add AHB bridge and interconnect assertions.
 - Add functional coverage and automated regression scripts.
 - Add a reusable SystemVerilog verification environment.
-- Run synthesis and static timing analysis on the target FPGA.
+- Constrain FPGA I/O timing.
 - Improve portability toward an open-source ASIC flow such as OpenLane.
 
 ## License

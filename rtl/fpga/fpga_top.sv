@@ -1,7 +1,8 @@
 // ==============================================================================
 // Module: fpga_top
-// Description: Tang Nano 20K board wrapper around soc_top, with the self-test
-//              master standing in for the CPU.
+// Description: Tang Nano 20K board wrapper around soc_top. The bus master is Ibex,
+//              or ahb_selftest_master when USE_IBEX is 0. The self-test also needs
+//              BOOT_HEX_FILE set to "../selftest_rom.hex".
 //
 // Buttons S1 and S2 are active high on this board: each connects 3V3 to a net with
 // a 1 k pull-down, so an unpressed button reads 0 (schematic rev 3921).
@@ -10,7 +11,8 @@
 module fpga_top #(
     // Gowin resolves this path from the project folder, fpga/build/. A wrong path is
     // only a warning (EX3988) and leaves the ROM empty, so check the build log.
-    parameter BOOT_HEX_FILE = "../selftest_rom.hex",
+    parameter BOOT_HEX_FILE = "../../sw/firmware.hex",
+    parameter USE_IBEX      = 1,
     parameter POR_BITS      = 16, // Power-on reset lasts 2^POR_BITS cycles
     parameter HEARTBEAT_BIT = 23
 )(
@@ -63,7 +65,8 @@ module fpga_top #(
 
     soc_top #(
         .BOOT_HEX_FILE       (BOOT_HEX_FILE),
-        .USE_SELFTEST_MASTER (1),
+        .USE_SELFTEST_MASTER (USE_IBEX == 0),
+        .USE_IBEX            (USE_IBEX),
         .HEARTBEAT_BIT       (HEARTBEAT_BIT)
     ) u_soc (
         .clk_27m  (clk_27m),

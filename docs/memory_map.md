@@ -10,7 +10,7 @@ Sistem menggunakan bus **AHB-Lite 32-bit** sebagai interkoneksi utama untuk CPU,
 
 | Base Address | End Address | Ukuran | Bus | Modul / Fungsi | Akses |
 | :--- | :--- | :--- | :--- | :--- | :--- |
-| `0x0000_0000` | `0x0000_7FFF` | 32 KB | AHB | **Instruction ROM (Bootloader)** | R / X |
+| `0x0000_0000` | `0x0000_7FFF` | 32 KB | AHB | **Instruction ROM (Bootloader)**. Vektor trap di `0x00`, reset Ibex di `0x80` | R / X |
 | `0x2000_0000` | `0x2000_7FFF` | 32 KB | AHB | **Data SRAM (Scratchpad / Stack)** | R / W |
 | `0x4000_0000` | `0x4000_0FFF` | 4 KB | APB | **APB UART Controller** | R / W |
 | `0x4000_1000` | `0x4000_1FFF` | 4 KB | APB | **APB SPI Master Controller** | R / W |

@@ -7,6 +7,8 @@ module soc_top #(
     parameter BOOT_HEX_FILE = "",
     // Drives the cpu_* master port from ahb_selftest_master until the CPU is integrated.
     parameter USE_SELFTEST_MASTER = 0,
+    // Drives the cpu_* master port from Ibex. Leave both at 0 for a test that forces cpu_*.
+    parameter USE_IBEX = 0,
     parameter HEARTBEAT_BIT = 23
 )(
     input  wire        clk_27m,
@@ -53,6 +55,19 @@ module soc_top #(
             ) u_selftest (
                 .hclk     (clk),
                 .hreset_n (rst_sys_n),
+                .haddr    (cpu_haddr),
+                .htrans   (cpu_htrans),
+                .hwrite   (cpu_hwrite),
+                .hsize    (cpu_hsize),
+                .hwdata   (cpu_hwdata),
+                .hrdata   (cpu_hrdata),
+                .hready   (cpu_hready),
+                .hresp    (cpu_hresp)
+            );
+        end else if (USE_IBEX != 0) begin : g_ibex
+            ibex_ahb_cpu u_cpu (
+                .clk_i    (clk),
+                .rst_ni   (rst_sys_n),
                 .haddr    (cpu_haddr),
                 .htrans   (cpu_htrans),
                 .hwrite   (cpu_hwrite),

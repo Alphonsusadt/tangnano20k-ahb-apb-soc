@@ -27,6 +27,7 @@ module tb_fpga_top;
 
     fpga_top #(
         .BOOT_HEX_FILE ("fpga/selftest_rom.hex"),
+        .USE_IBEX      (0),
         .POR_BITS      (4),
         .HEARTBEAT_BIT (10)
     ) u_dut (

@@ -20,8 +20,8 @@ SECTIONS
     /* Code and read-only data stored in ROM */
     .text :
     {
-        . = ALIGN(4);
-        KEEP(*(.text.init)) /* Reset Vector / _start entry point */
+        KEEP(*(.vectors))   /* Trap vectors at 0x00, reset entry at 0x80 */
+        KEEP(*(.text.init)) /* _start */
         *(.text)
         *(.text.*)
         . = ALIGN(4);

@@ -1,202 +1,171 @@
 /* ==============================================================================
- * Tang Nano 20K lowRISC Ibex SoC Firmware
- * Main C Program: Mengontrol SPI Master, UART Serial Console, dan GPIO LED
+ * Tang Nano 20K Ibex firmware
+ * Runs a CPU and bus self-test, reports on the UART, then echoes the UART and
+ * drives the LEDs. Report: "IBEX PASS\r\n" or "IBEX FAIL xx\r\n", xx = failed test.
+ * LEDs (active low): [0] heartbeat, [1] pass, [2] fail, [3] S2 pressed.
  * ============================================================================== */
 
 #include <stdint.h>
 
-// ------------------------------------------------------------------------------
-// Peta Alamat Register Periferal (Merujuk ke docs/memory_map.md)
-// ------------------------------------------------------------------------------
-#define UART_BASE       0x40000000U
-#define SPI_BASE        0x40001000U
-#define GPIO_BASE       0x40002000U
+#define REG32(addr)     (*(volatile uint32_t *)(addr))
 
-// Register UART
-#define UART_DATA       (*(volatile uint32_t *)(UART_BASE + 0x00U))
-#define UART_STATUS     (*(volatile uint32_t *)(UART_BASE + 0x04U))
-#define UART_CTRL       (*(volatile uint32_t *)(UART_BASE + 0x08U))
-#define UART_BAUD       (*(volatile uint32_t *)(UART_BASE + 0x0CU))
+#define UART_DATA       REG32(0x40000000U)
+#define UART_STATUS     REG32(0x40000004U)
+#define UART_BAUD       REG32(0x4000000CU)
+#define UART_RX_VALID   (1U << 0)
+#define UART_TX_EMPTY   (1U << 1)
 
-#define UART_STATUS_TX_EMPTY (1U << 1)
-#define UART_STATUS_RX_VALID (1U << 0)
-
-// Register SPI Master
-#define SPI_CR          (*(volatile uint32_t *)(SPI_BASE + 0x00U))
-#define SPI_SR          (*(volatile uint32_t *)(SPI_BASE + 0x04U))
-#define SPI_TXDATA      (*(volatile uint32_t *)(SPI_BASE + 0x08U))
-#define SPI_RXDATA      (*(volatile uint32_t *)(SPI_BASE + 0x0CU))
-#define SPI_CS          (*(volatile uint32_t *)(SPI_BASE + 0x10U))
-
+#define SPI_CR          REG32(0x40001000U)
+#define SPI_SR          REG32(0x40001004U)
+#define SPI_TXDATA      REG32(0x40001008U)
+#define SPI_RXDATA      REG32(0x4000100CU)
 #define SPI_SR_BUSY     (1U << 0)
-#define SPI_SR_TX_EMPTY (1U << 1)
+#define SPI_CR_ENABLE   (1U << 0)
+#define SPI_CR_DIV(n)   ((uint32_t)(n) << 4)
+#define SPI_CR_AUTO_CS  (1U << 12)
 
-// Register GPIO
-#define GPIO_OUT        (*(volatile uint32_t *)(GPIO_BASE + 0x00U))
-#define GPIO_IN         (*(volatile uint32_t *)(GPIO_BASE + 0x04U))
-#define GPIO_DIR        (*(volatile uint32_t *)(GPIO_BASE + 0x08U))
+#define GPIO_OUT        REG32(0x40002000U)
+#define GPIO_IN         REG32(0x40002004U)
+#define GPIO_IN_S2      (1U << 1)
 
-// ------------------------------------------------------------------------------
-// Bare-metal Startup & Entry Point (_start)
-// ------------------------------------------------------------------------------
-extern uint32_t _sidata, _sdata, _edata, _sbss, _ebss, _stack_top;
+/* The heartbeat toggles every 2^HEARTBEAT_BIT cycles. Simulation overrides this. */
+#ifndef HEARTBEAT_BIT
+#define HEARTBEAT_BIT   23
+#endif
 
-void __attribute__((naked, section(".text.init"))) _start(void) {
-    __asm__ volatile (
-        ".option push          \n"
-        ".option norelax       \n"
-        "la gp, __global_pointer$\n"
-        ".option pop           \n"
-        "la sp, _stack_top     \n"
-    );
-
-    // Salin section .data dari ROM ke RAM
-    uint32_t *src = &_sidata;
-    uint32_t *dst = &_sdata;
-    while (dst < &_edata) {
-        *dst++ = *src++;
-    }
-
-    // Nol-kan section .bss
-    dst = &_sbss;
-    while (dst < &_ebss) {
-        *dst++ = 0U;
-    }
-
-    // Panggil fungsi utama
-    main();
-
-    // Trap bila program selesai
-    while (1) {
-        __asm__ volatile ("wfi");
-    }
-}
-
-// ------------------------------------------------------------------------------
-// Driver Fungsi Delay & UART
-// ------------------------------------------------------------------------------
-static void delay_cycles(volatile uint32_t cycles) {
-    while (cycles--) {
-        __asm__ volatile ("nop");
-    }
-}
-
-static void uart_init(uint32_t baud_div) {
-    UART_BAUD = baud_div;
-    UART_CTRL = 0x03; // Enable TX & RX
-}
+/* Startup code and the two tests below depend on these. */
+static volatile uint32_t data_word = 0x12345678U;
+static volatile uint32_t bss_word;
+static const uint32_t rom_table[4] = {0x11111111U, 0x22222222U, 0x33333333U, 0x44444444U};
+static volatile uint32_t sram_buffer[4];
 
 static void uart_putc(char c) {
-    while (!(UART_STATUS & UART_STATUS_TX_EMPTY));
+    while (!(UART_STATUS & UART_TX_EMPTY)) {
+    }
     UART_DATA = (uint32_t)(uint8_t)c;
 }
 
-static void uart_puts(const char *str) {
-    while (*str) {
-        if (*str == '\n') {
-            uart_putc('\r');
+static void uart_puts(const char *text) {
+    while (*text) {
+        uart_putc(*text++);
+    }
+}
+
+static char hex_char(uint32_t value) {
+    return (char)((value < 10U) ? ('0' + value) : ('A' + value - 10U));
+}
+
+static uint32_t read_cycle_counter(void) {
+    uint32_t value;
+    __asm__ volatile ("csrr %0, mcycle" : "=r"(value));
+    return value;
+}
+
+/* Recursion exercises calls, returns, and the stack in SRAM. */
+static uint32_t __attribute__((noinline)) sum_to(uint32_t n) {
+    return (n == 0U) ? 0U : n + sum_to(n - 1U);
+}
+
+/* Each test returns its number when it fails, and 0 when it passes. */
+static uint32_t run_self_test(void) {
+    /* 1: .data was copied from ROM, and .bss was cleared. */
+    if (data_word != 0x12345678U || bss_word != 0U) {
+        return 1U;
+    }
+
+    /* 2: Constant data reads from ROM. */
+    for (uint32_t i = 0U; i < 4U; i++) {
+        if (((const volatile uint32_t *)rom_table)[i] != (i + 1U) * 0x11111111U) {
+            return 2U;
         }
-        uart_putc(*str++);
     }
-}
 
-static void uart_print_hex(uint32_t val, uint8_t digits) {
-    const char hex_chars[] = "0123456789ABCDEF";
-    for (int i = (digits - 1) * 4; i >= 0; i -= 4) {
-        uart_putc(hex_chars[(val >> i) & 0xFU]);
+    /* 3: Word writes to SRAM. */
+    for (uint32_t i = 0U; i < 4U; i++) {
+        sram_buffer[i] = 0xA5A50000U + i;
     }
+    for (uint32_t i = 0U; i < 4U; i++) {
+        if (sram_buffer[i] != 0xA5A50000U + i) {
+            return 3U;
+        }
+    }
+
+    /* 4: Byte and halfword stores and loads on every lane. */
+    volatile uint8_t  *bytes  = (volatile uint8_t *)&sram_buffer[0];
+    volatile uint16_t *halves = (volatile uint16_t *)&sram_buffer[1];
+    sram_buffer[0] = 0U;
+    sram_buffer[1] = 0U;
+    bytes[0] = 0x11U;
+    bytes[1] = 0x22U;
+    bytes[2] = 0x33U;
+    bytes[3] = 0x44U;
+    halves[0] = 0xBEEFU;
+    halves[1] = 0xDEADU;
+    if (sram_buffer[0] != 0x44332211U || sram_buffer[1] != 0xDEADBEEFU ||
+        bytes[2] != 0x33U || halves[1] != 0xDEADU) {
+        return 4U;
+    }
+
+    /* 5: Multiply and divide, from values the compiler cannot fold. */
+    volatile uint32_t a = 1234567U;
+    volatile uint32_t b = 89U;
+    if (a * b != 109876463U || a / b != 13871U || a % b != 48U) {
+        return 5U;
+    }
+
+    /* 6: Calls and the stack. */
+    if (sum_to(50U) != 1275U) {
+        return 6U;
+    }
+
+    /* 7: APB read of a reset value. */
+    if (UART_BAUD != 234U) {
+        return 7U;
+    }
+
+    /* 8: One SPI byte finishes. With MOSI jumpered to MISO, it also comes back. */
+    SPI_CR = SPI_CR_ENABLE | SPI_CR_AUTO_CS | SPI_CR_DIV(3);
+    SPI_TXDATA = 0xA5U;
+    while (SPI_SR & SPI_SR_BUSY) {
+    }
+#ifdef SPI_LOOPBACK
+    if ((SPI_RXDATA & 0xFFU) != 0xA5U) {
+        return 8U;
+    }
+#endif
+
+    return 0U;
 }
 
-// ------------------------------------------------------------------------------
-// Driver Fungsi SPI Master
-// ------------------------------------------------------------------------------
-static void spi_init(uint8_t clk_divider) {
-    // Mode 0: CPOL=0, CPHA=0, MSB first
-    // Bit 0 = 1 (Enable), Bit [11:4] = clk_divider, Bit 12 = 0 (Manual CS)
-    SPI_CR = (1U << 0) | ((uint32_t)clk_divider << 4);
-    SPI_CS = 0xFF; // Chip Select Idle (High)
-}
-
-static void spi_select(uint8_t cs_index) {
-    SPI_CS = ~(1U << cs_index); // Active Low
-}
-
-static void spi_deselect(void) {
-    SPI_CS = 0xFF; // Semua CS High (Non-aktif)
-}
-
-static uint8_t spi_transfer(uint8_t tx_byte) {
-    // Tulis byte ke buffer TX (memulai pengiriman)
-    SPI_TXDATA = (uint32_t)tx_byte;
-
-    // Tunggu transmisi serial selesai
-    while (SPI_SR & SPI_SR_BUSY);
-
-    // Ambil byte yang diterima dari register RX
-    return (uint8_t)(SPI_RXDATA & 0xFFU);
-}
-
-// ------------------------------------------------------------------------------
-// Main Program
-// ------------------------------------------------------------------------------
 int main(void) {
-    // Inisialisasi UART (27 MHz / 115200 ≈ 234)
-    uart_init(234);
+#ifdef FORCE_MISALIGNED_STORE
+    /* A direct sw, because -mstrict-align turns a C store into safe byte stores.
+     * The adapter must refuse it, so this store traps and nothing after it runs. */
+    __asm__ volatile ("sw %0, 1(%1)" : : "r"(0xFFFFFFFFU), "r"(0x20000100U));
+#endif
 
-    // Inisialisasi SPI Master (Clock divisor = 4)
-    spi_init(4);
+    uint32_t failed = run_self_test();
 
-    // Inisialisasi GPIO (LED Tang Nano 20K active low)
-    GPIO_DIR = 0x3F;  // 6 LED output
-    GPIO_OUT = 0x3F;  // Matikan semua LED
-
-    uart_puts("\n========================================\n");
-    uart_puts(" Tang Nano 20K RISC-V SoC (Ibex Core)   \n");
-    uart_puts(" APB SPI Master & UART Controller Test  \n");
-    uart_puts("========================================\n\n");
-
-    // Pengujian Komunikasi SPI
-    uart_puts("[SPI] Memulai pengujian transmisi SPI Master...\n");
-
-    uint8_t test_payload[4] = {0x9F, 0x00, 0x00, 0x00}; // JEDEC ID Command
-    uint8_t rx_payload[4];
-
-    spi_select(0); // Aktifkan Slave SPI #0
-
-    for (int i = 0; i < 4; i++) {
-        rx_payload[i] = spi_transfer(test_payload[i]);
-        uart_puts("  TX: 0x");
-        uart_print_hex(test_payload[i], 2);
-        uart_puts(" -> RX: 0x");
-        uart_print_hex(rx_payload[i], 2);
-        uart_puts("\n");
+    if (failed == 0U) {
+        uart_puts("IBEX PASS\r\n");
+    } else {
+        uart_puts("IBEX FAIL ");
+        uart_putc(hex_char((failed >> 4) & 0xFU));
+        uart_putc(hex_char(failed & 0xFU));
+        uart_puts("\r\n");
     }
 
-    spi_deselect(); // Non-aktifkan Slave SPI #0
-    uart_puts("[SPI] Pengujian selesai.\n\n");
-
-    // Main Loop: Berkedip LED (Heartbeat) dan kirim status periodik
-    uint8_t counter = 0;
     while (1) {
-        // Toggle LED
-        GPIO_OUT = ~(1U << (counter % 6));
+        uint32_t status = UART_STATUS;
+        if ((status & UART_RX_VALID) && (status & UART_TX_EMPTY)) {
+            UART_DATA = UART_DATA;
+        }
 
-        uart_puts("[SoC Heartbeat] Siklus ke: 0x");
-        uart_print_hex(counter, 2);
-        uart_puts("\n");
-
-        // Kirim byte status lewat SPI
-        spi_select(0);
-        uint8_t ret = spi_transfer(counter);
-        spi_deselect();
-
-        uart_puts("  SPI Echo: 0x");
-        uart_print_hex(ret, 2);
-        uart_puts("\n");
-
-        counter++;
-        delay_cycles(500000);
+        uint32_t lit = (read_cycle_counter() >> HEARTBEAT_BIT) & 1U;
+        lit |= (failed == 0U) ? (1U << 1) : (1U << 2);
+        if (GPIO_IN & GPIO_IN_S2) {
+            lit |= 1U << 3;
+        }
+        GPIO_OUT = ~lit & 0x3FU;
     }
-
-    return 0;
 }
