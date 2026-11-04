@@ -15,14 +15,15 @@ cd tangnano20k-ahb-apb-soc
 
 | Goal | Tools | Run from the repository root |
 | --- | --- | --- |
+| Run all tests | Icarus Verilog for the bus and peripheral tests; Verilator 5 and `riscv64-unknown-elf-gcc`, on Linux or WSL, for the Ibex test | `bash dv/run_regression.sh` |
 | Run firmware on Ibex in simulation | Verilator 5 and `riscv64-unknown-elf-gcc`, on Linux or WSL | `bash dv/run_ibex_sim.sh` |
-| Build the firmware | `riscv64-unknown-elf-gcc`, on Linux or WSL | `make -C sw` |
-| Build the bitstream | Gowin EDA, after building the firmware | `cd fpga/build && gw_sh ../build.tcl` |
+| Build the bitstream | Gowin EDA | `cd fpga/build && gw_sh ../build.tcl` |
 | Program the board | Gowin Programmer | See [FPGA Implementation](#fpga-implementation) |
+| Change the firmware | `riscv64-unknown-elf-gcc`, on Linux or WSL | Edit `sw/main.c`, then `make -C sw` |
 
-`gw_sh` and `programmer_cli` are in the `IDE/bin` and `Programmer/bin` folders of the Gowin install, which the installer may not add to `PATH`. The peripheral and bus testbenches need only Icarus Verilog; see [Verification](#verification).
+The compiled firmware is checked in as `sw/firmware.hex`, so building the bitstream needs no RISC-V toolchain. `gw_sh` and `programmer_cli` are in the `IDE/bin` and `Programmer/bin` folders of the Gowin install, which the installer may not add to `PATH`.
 
-A passing simulation ends each of its two runs with `RESULT: <n> checks, 0 failures`.
+`dv/run_regression.sh` prints one `PASS`, `FAIL`, or `SKIP` line per test, and skips any test whose tools are missing.
 
 ## Project Status
 
@@ -98,6 +99,7 @@ tangnano-soc-portfolio/
 |   |-- tb_fpga_top.sv
 |   |-- tb_obi_to_ahb.sv
 |   |-- run_ibex_sim.sh
+|   |-- run_regression.sh         # Runs every self-checking test
 |   |-- tb_soc_ibex.sv
 |   |-- tb_soc_system.sv
 |   `-- tb_soc_top.sv
@@ -114,7 +116,7 @@ tangnano-soc-portfolio/
 |   |-- memory/                   # AHB-Lite SRAM with byte and halfword writes
 |   |-- peripherals/              # APB UART, SPI, and GPIO
 |   `-- soc_top.sv                # SoC top level
-|-- sw/                           # Bare-metal firmware and linker script
+|-- sw/                           # Bare-metal firmware, linker script, and compiled image
 |-- third_party/ibex/             # Unmodified lowRISC Ibex source, Apache 2.0
 `-- README.md
 ```
@@ -146,6 +148,14 @@ The verification strategy follows a staged approach:
 3. Verify address decoding and AHB-to-APB transaction sequencing.
 4. Verify the complete SoC using a firmware image and a UART monitor.
 5. Inspect waveforms to debug protocol, reset, and timing behavior.
+
+### Run All Tests
+
+```bash
+bash dv/run_regression.sh
+```
+
+A test passes only if it exits cleanly and reports `0 failures`, and the script exits with 1 if any test fails. When the Ibex tools are present, it also checks that `sw/firmware.hex` matches the firmware source. Logs are written to `work/`. The sections below run each test on its own.
 
 ### Run the SPI Unit Testbench
 
@@ -251,22 +261,21 @@ The SoC testbench generates a 27 MHz clock, releases reset, monitors the UART TX
 
 ## Build the Firmware
 
-The firmware builds on Linux or WSL with `riscv64-unknown-elf-gcc`, which also targets RV32:
+`sw/firmware.hex` is checked in, so this step is needed only after changing the firmware. It builds on Linux or WSL with `riscv64-unknown-elf-gcc`, which also targets RV32:
 
 ```bash
 make -C sw
 ```
 
-This writes `sw/firmware.hex`, with one 32-bit word per line, which `$readmemh` loads into the instruction ROM. To use a toolchain with another prefix, pass it to `make`, for example `make -C sw CROSS=riscv32-unknown-elf-`.
+This writes `sw/firmware.hex`, with one 32-bit word per line, which `$readmemh` loads into the instruction ROM. Commit the new image together with the source change. To use a toolchain with another prefix, pass it to `make`, for example `make -C sw CROSS=riscv32-unknown-elf-`.
 
 ## FPGA Implementation
 
 The target device is the Gowin GW2AR-LV18QN88C8/I7 on the Sipeed Tang Nano 20K. `rtl/fpga/fpga_top.sv` wraps the SoC for the board. The [lowRISC Ibex](https://github.com/lowRISC/ibex) files it needs are in `third_party/ibex`, copied unchanged from commit `f4515520`.
 
-Build the firmware on Linux or WSL, then build the bitstream from `fpga/build/`. The batch script is the supported flow; the `.gprj` file does not list the Ibex sources.
+Build the bitstream from `fpga/build/`. The batch script is the supported flow; the `.gprj` file does not list the Ibex sources.
 
 ```bash
-make -C sw
 cd fpga/build
 gw_sh ../build.tcl
 ```
@@ -333,13 +342,15 @@ This project is intended to demonstrate practical understanding of:
 - The current verification environment is primarily directed testing; coverage-driven and formal verification are future improvements.
 - Only the FPGA clock is constrained; I/O timing is not.
 - CPU interrupts and the debug module are not connected.
+- The UART and SPI have no FIFOs, and `GPIO_DIR` does not affect the pins; see [`docs/memory_map.md`](docs/memory_map.md).
+- Writes to the ROM are ignored but still answered with `OKAY`.
 - The SPI pins have not been measured on the board.
 - The design is an educational FPGA SoC and is not yet a silicon-qualified ASIC implementation.
 
 ## Future Work
 
 - Add AHB bridge and interconnect assertions.
-- Add functional coverage and automated regression scripts.
+- Add functional coverage.
 - Add a reusable SystemVerilog verification environment.
 - Constrain FPGA I/O timing.
 - Improve portability toward an open-source ASIC flow such as OpenLane.
