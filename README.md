@@ -45,7 +45,7 @@ This project is under active development.
 | Ibex integration | Firmware runs on Ibex in Verilator simulation: 133 checks from the chip pins, including misaligned store and ROM store traps, and an SPI exchange with a model of an external slave |
 | Bare-metal firmware | Self-test, UART echo, and LED firmware runs in simulation and on the board |
 | FPGA synthesis and timing with Ibex | Gowin place and route completes; 27 MHz constraint met in timing analysis (see [FPGA Implementation](#fpga-implementation)) |
-| FPGA board test | CPU-free self-test image runs on a Tang Nano 20K: `SOC PASS` report, UART echo, LEDs, and S2 confirmed by hand. Ibex image runs on the same board: `IBEX PASS` report, UART echo, LEDs, and S2 confirmed by hand. SPI pins not yet measured |
+| FPGA board test | CPU-free self-test image runs on a Tang Nano 20K: `SOC PASS` report, UART echo, LEDs, and S2 confirmed by hand. Ibex image runs on the same board: `IBEX PASS` report, UART echo, LEDs, and S2 confirmed by hand. SPI demo image exchanges bytes with an STM32F407 slave at 500 kHz: 8 typed transfers confirmed by hand. SPI signals not yet measured |
 
 The repository will be updated as each integration stage is verified. Results are only marked as complete after they have been reproduced through simulation or FPGA reports.
 
@@ -119,7 +119,7 @@ tangnano-soc-portfolio/
 |   |-- memory/                   # AHB-Lite SRAM with byte and halfword writes
 |   |-- peripherals/              # APB UART, SPI, and GPIO
 |   `-- soc_top.sv                # SoC top level
-|-- sw/                           # Bare-metal firmware, linker script, and compiled image
+|-- sw/                           # Bare-metal firmware, linker script, compiled image, and STM32 SPI slave sketch
 |-- third_party/ibex/             # Unmodified lowRISC Ibex source, Apache 2.0
 `-- README.md
 ```
@@ -329,7 +329,7 @@ vvp work/sim_fpga
 
 ### SPI Demo with an External Slave
 
-The demo image sends each character typed on the serial port over SPI at 500 kHz in mode 0, and reports both directions, for example `SPI TX 62 RX 41`. A slave answers during the next transfer, so `RX` is the reply to the previous byte. The intended slave is an STM32F407 on SPI2. So far this has run only in simulation, against a model of that slave.
+The demo image sends each character typed on the serial port over SPI at 500 kHz in mode 0, and reports both directions, for example `SPI TX 62 RX 41`. A slave answers during the next transfer, so `RX` is the reply to the previous byte. The slave is an STM32F407G-DISC1 on SPI2, running the sketch in [`sw/stm32_spi_slave`](sw/stm32_spi_slave/stm32_spi_slave.ino), which answers each byte in upper case. The regression tests the firmware against a model of that slave. On the board, 8 typed transfers matched the same behaviour: the first reply was `00`, and each later reply was the previous byte in upper case. This is a functional test by hand at one clock rate, not a measurement of the signals.
 
 | Signal | Tang Nano 20K pin | STM32F407 pin |
 | --- | --- | --- |
@@ -339,7 +339,7 @@ The demo image sends each character typed on the serial port over SPI at 500 kHz
 | CS | 72 | PB12 |
 | GND | GND | GND |
 
-Connect the grounds, but not the supply rails. Build the firmware on Linux or WSL, then build the bitstream from `fpga/build/`. The result is `impl/pnr/tangnano20k_spi_demo.fs`.
+Program the STM32 before wiring, because its previous program may drive these pins. Connect the grounds, but not the supply rails. Build the firmware on Linux or WSL, then build the bitstream from `fpga/build/`. The result is `impl/pnr/tangnano20k_spi_demo.fs`.
 
 ```bash
 make -C sw firmware_spi_demo.hex NAME=firmware_spi_demo CFLAGS_EXTRA=-DSPI_DEMO
@@ -366,7 +366,7 @@ This project is intended to demonstrate practical understanding of:
 - Only the FPGA clock is constrained; I/O timing is not.
 - CPU interrupts and the debug module are not connected.
 - The UART and SPI have no FIFOs, and `GPIO_DIR` does not affect the pins; see [`docs/memory_map.md`](docs/memory_map.md).
-- The SPI pins have not been measured on the board.
+- The SPI signals have not been measured on the board. The STM32 demo shows correct bytes at 500 kHz, not signal timing or margin.
 - The design is an educational FPGA SoC and is not yet a silicon-qualified ASIC implementation.
 
 ## Future Work
