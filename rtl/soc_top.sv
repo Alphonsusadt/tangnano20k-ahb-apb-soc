@@ -91,8 +91,10 @@ module soc_top #(
     wire [2:0]  imem_hsize;
     wire [31:0] imem_hwdata;
     reg  [31:0] imem_hrdata;
-    wire        imem_hready = 1'b1;
-    wire        imem_hresp  = 1'b0;
+    reg         rom_err_first_q;
+    reg         rom_err_second_q;
+    wire        imem_hready = !rom_err_first_q;
+    wire        imem_hresp  = rom_err_first_q || rom_err_second_q;
 
     // Slave 1: Data SRAM
     wire        dmem_hsel;
@@ -182,6 +184,18 @@ module soc_top #(
     always @(posedge clk) begin
         if (imem_hsel && (imem_htrans[1])) begin
             imem_hrdata <= rom_mem[imem_haddr[14:2]];
+        end
+    end
+
+    // The ROM is read-only, so an accepted write answers with a two-cycle ERROR. A
+    // write still waiting behind a stalled transfer has not been accepted yet.
+    always @(posedge clk or negedge rst_sys_n) begin
+        if (!rst_sys_n) begin
+            rom_err_first_q  <= 1'b0;
+            rom_err_second_q <= 1'b0;
+        end else begin
+            rom_err_first_q  <= imem_hsel && imem_htrans[1] && imem_hwrite && cpu_hready;
+            rom_err_second_q <= rom_err_first_q;
         end
     end
 

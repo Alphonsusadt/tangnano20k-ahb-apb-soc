@@ -500,6 +500,127 @@ module tb_soc_system;
         end_group("offset responses");
     endtask
 
+    // ---------------------------------------------------------------------------
+    // The ROM is read-only, so a write must answer with a two-cycle ERROR and leave
+    // the contents alone. Reads must stay zero-wait, including one held behind ERROR.
+    // ---------------------------------------------------------------------------
+    task automatic go_idle_after_write;
+        htrans <= TRANS_IDLE;
+        hwrite <= 1'b0;
+        hwdata <= prev_wdata;
+        prev_write = 1'b0;
+    endtask
+
+    task automatic check_response(input logic want_resp, input logic want_ready,
+                                  input string what);
+        check_eq({30'h0, hresp, hready}, {30'h0, want_resp, want_ready}, what);
+    endtask
+
+    task automatic test_rom_write;
+        localparam [31:0] ROM_WORD = ROM_BASE + 32'h100;
+        localparam [31:0] PATTERN  = 32'hC001_D00D;
+        logic [31:0] val;
+        begin_group;
+        u_dut.rom_mem[ROM_WORD >> 2] = PATTERN;
+
+        // Word write: ERROR for exactly two cycles, then the bus is free.
+        xfer(ROM_WORD, 1'b1, SIZE_WORD, 32'hFFFF_FFFF);
+        go_idle_after_write;
+        @(posedge clk);
+        check_response(1'b1, 1'b0, "ROM write: first ERROR cycle");
+        @(posedge clk);
+        check_response(1'b1, 1'b1, "ROM write: second ERROR cycle");
+        hwdata <= GARBAGE;
+        @(posedge clk);
+        check_response(1'b0, 1'b1, "ROM write: OKAY after ERROR");
+        check_eq(u_dut.rom_mem[ROM_WORD >> 2], PATTERN, "ROM write: contents unchanged");
+
+        // Every write size is refused.
+        saw_error = 1'b0;
+        write(ROM_WORD + 32'h1, SIZE_BYTE, 32'hFFFF_FFFF);
+        check_eq({31'h0, saw_error}, 32'h1, "ROM byte write answers ERROR");
+        saw_error = 1'b0;
+        write(ROM_WORD + 32'h2, SIZE_HALF, 32'hFFFF_FFFF);
+        check_eq({31'h0, saw_error}, 32'h1, "ROM halfword write answers ERROR");
+        check_eq(u_dut.rom_mem[ROM_WORD >> 2], PATTERN, "ROM small writes: contents unchanged");
+
+        // A read still answers OKAY with its data.
+        saw_error = 1'b0;
+        read(ROM_WORD, val);
+        check_eq(val, PATTERN, "ROM read data");
+        check_eq({31'h0, saw_error}, 32'h0, "ROM read answers OKAY");
+
+        // A read held behind ERROR is accepted in the second cycle and answers OKAY.
+        xfer(ROM_WORD, 1'b1, SIZE_WORD, 32'hFFFF_FFFF);
+        haddr  <= ROM_WORD;
+        hwrite <= 1'b0;
+        hwdata <= prev_wdata;
+        prev_write = 1'b0;
+        @(posedge clk);
+        check_response(1'b1, 1'b0, "Held read: first ERROR cycle");
+        @(posedge clk);
+        check_response(1'b1, 1'b1, "Held read: second ERROR cycle");
+        htrans <= TRANS_IDLE;
+        hwdata <= GARBAGE;
+        @(posedge clk);
+        check_response(1'b0, 1'b1, "Held read answers OKAY");
+        check_eq(hrdata, PATTERN, "Held read data");
+
+        // A second write held behind ERROR gets its own full ERROR.
+        xfer(ROM_WORD, 1'b1, SIZE_WORD, 32'hFFFF_FFFF);
+        haddr <= ROM_WORD + 32'h4;
+        hwdata <= prev_wdata;
+        @(posedge clk);
+        check_response(1'b1, 1'b0, "Two writes: first ERROR, cycle 1");
+        @(posedge clk);
+        check_response(1'b1, 1'b1, "Two writes: first ERROR, cycle 2");
+        go_idle_after_write;
+        @(posedge clk);
+        check_response(1'b1, 1'b0, "Two writes: second ERROR, cycle 1");
+        @(posedge clk);
+        check_response(1'b1, 1'b1, "Two writes: second ERROR, cycle 2");
+        hwdata <= GARBAGE;
+        @(posedge clk);
+        check_response(1'b0, 1'b1, "Two writes: OKAY afterwards");
+
+        // IDLE is not a transfer, so HWRITE on a ROM address means nothing.
+        haddr  <= ROM_WORD;
+        htrans <= TRANS_IDLE;
+        hwrite <= 1'b1;
+        repeat (3) begin
+            @(posedge clk);
+            check_response(1'b0, 1'b1, "IDLE with HWRITE on the ROM answers OKAY");
+        end
+        hwrite <= 1'b0;
+        @(posedge clk);
+
+        // A write that waits behind the default slave's ERROR and is then cancelled was
+        // never accepted, so it must not start a ROM ERROR. HADDR stays on the ROM.
+        error_then_waiting(ROM_WORD, 1'b1);
+        go_idle_after_write;
+        @(posedge clk);
+        check_response(1'b1, 1'b1, "Cancelled write: second default ERROR cycle");
+        hwdata <= GARBAGE;
+        repeat (3) begin
+            @(posedge clk);
+            check_response(1'b0, 1'b1, "Cancelled ROM write answers nothing");
+        end
+
+        // A write held behind a stalled APB read starts ERROR only once it is accepted.
+        xfer(GPIO_OUT, 1'b0, SIZE_WORD, 32'h0);
+        xfer(ROM_WORD, 1'b1, SIZE_WORD, 32'hFFFF_FFFF);
+        check_eq({31'h0, hresp}, 32'h0, "Write behind APB read: APB answers OKAY");
+        go_idle_after_write;
+        @(posedge clk);
+        check_response(1'b1, 1'b0, "Write behind APB read: first ERROR cycle");
+        @(posedge clk);
+        check_response(1'b1, 1'b1, "Write behind APB read: second ERROR cycle");
+        hwdata <= GARBAGE;
+        @(posedge clk);
+        check_eq(u_dut.rom_mem[ROM_WORD >> 2], PATTERN, "ROM contents unchanged at the end");
+        end_group("ROM write");
+    endtask
+
     task automatic test_register_aliases;
         logic [31:0] val;
         begin_group;
@@ -646,7 +767,8 @@ module tb_soc_system;
             0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11: addr = sram_addr(r[17:14]) + offset;
             12, 13, 14: begin
                 addr = rom_addr(r[17:14]) + offset;
-                wr   = 1'b0;
+                if (with_errors) err = wr;
+                else wr = 1'b0;
             end
             15, 16, 17, 18: addr = GPIO_OUT + offset;
             19, 20: addr = GPIO_DIR + offset;
@@ -806,6 +928,7 @@ module tb_soc_system;
         test_transfer_behind_error;
         test_register_aliases;
         test_offset_responses;
+        test_rom_write;
         random_traffic(1'b0, "random traffic");
         random_traffic(1'b1, "random traffic with ERROR");
 

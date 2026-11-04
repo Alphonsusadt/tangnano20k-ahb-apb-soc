@@ -39,10 +39,10 @@ This project is under active development.
 | AHB interconnect and default slave | Directed unit regression passes: 299 checks |
 | APB write strobes (GPIO, UART, SPI) | Directed regression passes: 62 checks |
 | AHB-to-APB4 bridge | Directed unit regression passes: 1,872 checks |
-| SoC system without a CPU | Regression through the bus to the chip pins passes: 15,897 checks, including random traffic |
+| SoC system without a CPU | Regression through the bus to the chip pins passes: 15,545 checks, including random traffic |
 | FPGA self-test image, no CPU | Regression from the board pins passes: 175 checks, including injected faults |
 | OBI-to-AHB adapter | Random regression passes: 1,351,409 checks across five traffic and wait-state profiles |
-| Ibex integration | Firmware runs on Ibex in Verilator simulation: 52 checks from the chip pins, including a misaligned store trap |
+| Ibex integration | Firmware runs on Ibex in Verilator simulation: 57 checks from the chip pins, including misaligned store and ROM store traps |
 | Bare-metal firmware | Self-test, UART echo, and LED firmware runs in simulation and on the board |
 | FPGA synthesis and timing with Ibex | Gowin place and route completes; 27 MHz constraint met in timing analysis (see [FPGA Implementation](#fpga-implementation)) |
 | FPGA board test | CPU-free self-test image runs on a Tang Nano 20K: `SOC PASS` report, UART echo, LEDs, and S2 confirmed by hand. Ibex image runs on the same board: `IBEX PASS` report, UART echo, LEDs, and S2 confirmed by hand. SPI pins not yet measured |
@@ -288,10 +288,10 @@ Results with Gowin V1.9.11.03 Education and the firmware image:
 
 | Metric | Result |
 | --- | --- |
-| Logic | 5,360 / 20,736 (5,261 LUT, 99 ALU) |
-| Registers | 2,257 / 15,750 |
+| Logic | 5,321 / 20,736 (5,222 LUT, 99 ALU) |
+| Registers | 2,259 / 15,750 |
 | Block RAM | 17 / 46 |
-| Timing | 27 MHz constraint met, estimated Fmax 34.6 MHz |
+| Timing | 27 MHz constraint met, estimated Fmax 32.4 MHz |
 
 Block RAM use grows with the firmware, because synthesis trims unused ROM contents. Only the clock is constrained; I/O timing is not. The tool also warns (`PR1014`) that the clock from pin 4 uses generic routing.
 
@@ -345,7 +345,6 @@ This project is intended to demonstrate practical understanding of:
 - Only the FPGA clock is constrained; I/O timing is not.
 - CPU interrupts and the debug module are not connected.
 - The UART and SPI have no FIFOs, and `GPIO_DIR` does not affect the pins; see [`docs/memory_map.md`](docs/memory_map.md).
-- Writes to the ROM are ignored but still answered with `OKAY`.
 - The SPI pins have not been measured on the board.
 - The design is an educational FPGA SoC and is not yet a silicon-qualified ASIC implementation.
 

@@ -19,6 +19,8 @@ make -C sw clean NAME=firmware_sim > /dev/null
 make -C sw firmware_sim.hex NAME=firmware_sim CFLAGS_EXTRA="-DHEARTBEAT_BIT=12 -DSPI_LOOPBACK"
 make -C sw clean NAME=firmware_trap > /dev/null
 make -C sw firmware_trap.hex NAME=firmware_trap CFLAGS_EXTRA="-DFORCE_MISALIGNED_STORE"
+make -C sw clean NAME=firmware_rom_fault > /dev/null
+make -C sw firmware_rom_fault.hex NAME=firmware_rom_fault CFLAGS_EXTRA="-DFORCE_ROM_STORE"
 
 SOURCES=(
     "$IBEX_DIR/rtl/ibex_pkg.sv"
@@ -87,3 +89,5 @@ echo "--- Firmware run"
 "$OBJ_DIR/sim"
 echo "--- Misaligned store run"
 "$OBJ_DIR/sim" +image=sw/firmware_trap.hex +expect_trap
+echo "--- ROM store run"
+"$OBJ_DIR/sim" +image=sw/firmware_rom_fault.hex +expect_rom_fault

@@ -19,7 +19,7 @@ Sistem menggunakan bus **AHB-Lite 32-bit** sebagai interkoneksi utama untuk CPU,
 
 Transfer ke alamat di luar tabel ini dijawab oleh default slave di `ahb_interconnect` dengan `ERROR` dua siklus. Rentang *Reserved* dijawab `ERROR` oleh AHB-to-APB bridge.
 
-Tulis ke ROM diabaikan dan saat ini tetap dijawab `OKAY`.
+Tulis ke ROM tidak mengubah isinya dan dijawab `ERROR` dua siklus, untuk semua ukuran transfer. CPU menerimanya sebagai store fault.
 
 Offset di dalam blok 4 KB periferal yang melewati daftar registernya dijawab `PSLVERR`, yang diteruskan bridge sebagai `ERROR`, dan tidak menyentuh register apa pun.
 

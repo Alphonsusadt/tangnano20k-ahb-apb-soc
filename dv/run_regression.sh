@@ -66,7 +66,7 @@ fi
 if command -v verilator > /dev/null && command -v riscv64-unknown-elf-gcc > /dev/null; then
     log=work/ibex.log
     bash dv/run_ibex_sim.sh > "$log" 2>&1
-    report "Ibex firmware and trap" "$?" "$log" 2
+    report "Ibex firmware and traps" "$?" "$log" 3
 
     # The checked-in image must match the source, or the bitstream runs old firmware.
     make -C sw firmware_check.hex NAME=firmware_check > /dev/null 2>&1

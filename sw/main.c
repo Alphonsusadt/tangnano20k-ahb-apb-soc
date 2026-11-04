@@ -143,6 +143,10 @@ int main(void) {
      * The adapter must refuse it, so this store traps and nothing after it runs. */
     __asm__ volatile ("sw %0, 1(%1)" : : "r"(0xFFFFFFFFU), "r"(0x20000100U));
 #endif
+#ifdef FORCE_ROM_STORE
+    /* The ROM answers this store with ERROR, so it traps and nothing after it runs. */
+    __asm__ volatile ("sw %0, 0(%1)" : : "r"(0xFFFFFFFFU), "r"(0x00000100U));
+#endif
 
     uint32_t failed = run_self_test();
 

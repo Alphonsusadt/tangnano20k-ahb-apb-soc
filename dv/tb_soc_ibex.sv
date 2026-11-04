@@ -4,6 +4,8 @@
 //              chip pins: the UART report, UART echo, LEDs, S2, and the SPI byte.
 //              With +expect_trap, the firmware does a misaligned store that the
 //              adapter must refuse, so it must trap with nothing written to the bus.
+//              With +expect_rom_fault, the firmware stores to the ROM. The store reaches
+//              the bus, the ROM answers ERROR, and the core must trap.
 //              Run it through dv/run_ibex_sim.sh, which builds the firmware first.
 // ==============================================================================
 
@@ -184,6 +186,23 @@ module tb_soc_ibex;
         $finish;
     endtask
 
+    task automatic run_rom_fault_test;
+        @(negedge clk);
+        rst_n = 1'b1;
+        guard = 0;
+        while (rx_count == 0 && guard < 200000) begin
+            @(posedge clk);
+            guard++;
+        end
+        wait_cycles(5000);
+        if (rx_count != 1) print_log;
+        check("Firmware sends only the trap character", rx_count == 1);
+        check("That character is the trap marker", rx_log[0] === 8'h21);
+        check("The ROM answers the store with an AHB error", error_responses != 0);
+        $display("RESULT: %0d checks, %0d failures", checks, failures);
+        $finish;
+    endtask
+
     initial begin
         if ($value$plusargs("image=%s", image)) begin
             $readmemh(image, u_dut.rom_mem);
@@ -192,6 +211,7 @@ module tb_soc_ibex;
         check("LEDs are off in reset", led === 6'b111111);
         check("UART idles high in reset", uart_tx === 1'b1);
         if ($test$plusargs("expect_trap")) run_trap_test;
+        if ($test$plusargs("expect_rom_fault")) run_rom_fault_test;
         @(negedge clk);
         rst_n = 1'b1;
 
