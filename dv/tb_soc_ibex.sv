@@ -6,6 +6,9 @@
 //              adapter must refuse, so it must trap with nothing written to the bus.
 //              With +expect_rom_fault, the firmware stores to the ROM. The store reaches
 //              the bus, the ROM answers ERROR, and the core must trap.
+//              With +spi_demo, the demo firmware talks to a model of an external SPI
+//              slave, like the STM32F407 sketch: it answers each byte in upper case
+//              during the next transfer.
 //              Run it through dv/run_ibex_sim.sh, which builds the firmware first.
 // ==============================================================================
 
@@ -23,6 +26,50 @@ module tb_soc_ibex;
     wire [7:0] spi_cs_n;
     wire [5:0] led;
 
+    // Model of an external mode 0 slave. MISO reads high when it is not selected,
+    // like the pull-up on the board. The reply is ready before the next transfer.
+    logic       spi_demo_mode = 1'b0;
+    logic [7:0] slave_rx = 8'h00;
+    logic [7:0] slave_tx = 8'h00;
+    logic [7:0] slave_reply = 8'h00;
+    logic [7:0] slave_log [0:15];
+    integer     slave_count = 0;
+    integer     slave_bit = 0;
+    wire        slave_miso = spi_cs_n[0] ? 1'b1 : slave_tx[7];
+
+    initial spi_demo_mode = $test$plusargs("spi_demo");
+
+    always @(negedge spi_cs_n[0]) begin
+        slave_tx  = slave_reply;
+        slave_bit = 0;
+    end
+
+    // A real slave needs MOSI stable before the edge it samples on, so this uses the
+    // value from half a clock earlier. A master that changes MOSI on the rising edge,
+    // as in CPHA 1, then fails here instead of passing on simulator event order.
+    logic mosi_before_edge = 1'b0;
+
+    always @(negedge clk) mosi_before_edge = spi_mosi;
+
+    always @(posedge spi_sck) begin
+        if (!spi_cs_n[0]) begin
+            slave_rx = {slave_rx[6:0], mosi_before_edge};
+            slave_bit++;
+        end
+    end
+
+    // MISO changes shortly after the falling edge, like a real output.
+    always @(negedge spi_sck) begin
+        #5;
+        if (!spi_cs_n[0]) slave_tx = {slave_tx[6:0], 1'b0};
+    end
+
+    always @(posedge spi_cs_n[0]) begin
+        if (slave_bit == 8 && slave_count < 16) slave_log[slave_count] = slave_rx;
+        slave_count++;
+        slave_reply = (slave_rx >= "a" && slave_rx <= "z") ? slave_rx - 8'h20 : slave_rx;
+    end
+
     always #18.5 clk = ~clk;
 
     soc_top #(
@@ -36,7 +83,8 @@ module tb_soc_ibex;
         .uart_rx  (uart_rx),
         .spi_sck  (spi_sck),
         .spi_mosi (spi_mosi),
-        .spi_miso (spi_mosi), // Loopback, like a jumper between the header pins
+        // Loopback, like a jumper between the header pins, or the slave model.
+        .spi_miso (spi_demo_mode ? slave_miso : spi_mosi),
         .spi_cs_n (spi_cs_n),
         .led      (led)
     );
@@ -203,6 +251,72 @@ module tb_soc_ibex;
         $finish;
     endtask
 
+    // Waits for a whole line from the UART and compares it with the expected text.
+    task automatic expect_line(input string want);
+        string  line = "";
+        integer wait_guard = 0;
+        rx_count = 0;
+        while ((rx_count == 0 || rx_log[rx_count - 1] !== 8'h0A) && wait_guard < 200000) begin
+            @(posedge clk);
+            wait_guard++;
+        end
+        for (int i = 0; i < rx_count && i < 256; i++) line = {line, string'(rx_log[i])};
+        if (line != {want, "\r\n"}) begin
+            $display("  Got line: %s", line);
+            print_log;
+        end
+        check({"UART line: ", want}, line == {want, "\r\n"});
+    endtask
+
+    // Sends one character and checks the report line and the byte the slave saw.
+    task automatic spi_demo_exchange(input logic [7:0] tx, input logic [7:0] rx);
+        integer first_index = slave_count;
+        string  expected = $sformatf("SPI TX %02x RX %02x", tx, rx);
+        expected = expected.toupper();
+        fork
+            expect_line(expected);
+            send_byte(tx);
+        join
+        wait_cycles(20);
+        check($sformatf("One SPI transfer for 0x%02x", tx), slave_count == first_index + 1);
+        check($sformatf("Slave receives 0x%02x", tx), slave_log[first_index] === tx);
+    endtask
+
+    task automatic run_spi_demo_test;
+        realtime sck_start;
+        integer  sck_period = 0;
+        @(negedge clk);
+        rst_n = 1'b1;
+        expect_line("IBEX SPI DEMO");
+        check("CS0 idles high", spi_cs_n[0] === 1'b1);
+        check("SCK idles low in mode 0", spi_sck === 1'b0);
+
+        // The first reply is the slave's reset value, then each byte comes back
+        // in upper case one transfer later. Digits and symbols stay unchanged.
+        spi_demo_exchange("a", 8'h00);
+        spi_demo_exchange("b", "A");
+        spi_demo_exchange("z", "B");
+        spi_demo_exchange("1", "Z");
+        spi_demo_exchange(8'hA5, "1");
+        spi_demo_exchange(8'h5A, 8'hA5);
+
+        // 27 MHz / 54 = 500 kHz.
+        fork
+            begin
+                @(posedge spi_sck);
+                sck_start = $realtime;
+                @(posedge spi_sck);
+                sck_period = int'(($realtime - sck_start) / 37.0);
+            end
+            send_byte("x");
+        join
+        check($sformatf("SCK period is 54 clocks, got %0d", sck_period), sck_period == 54);
+        check("No trap was taken", trap_chars == 0);
+        check("No ERROR responses on the bus", error_responses == 0);
+        $display("RESULT: %0d checks, %0d failures", checks, failures);
+        $finish;
+    endtask
+
     initial begin
         if ($value$plusargs("image=%s", image)) begin
             $readmemh(image, u_dut.rom_mem);
@@ -212,6 +326,7 @@ module tb_soc_ibex;
         check("UART idles high in reset", uart_tx === 1'b1);
         if ($test$plusargs("expect_trap")) run_trap_test;
         if ($test$plusargs("expect_rom_fault")) run_rom_fault_test;
+        if (spi_demo_mode) run_spi_demo_test;
         @(negedge clk);
         rst_n = 1'b1;
 

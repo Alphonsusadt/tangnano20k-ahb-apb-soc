@@ -137,7 +137,47 @@ static uint32_t run_self_test(void) {
     return 0U;
 }
 
+#ifdef SPI_DEMO
+/* 27 MHz / (2 * (26 + 1)) = 500 kHz, slow enough for jumper wires. */
+#define SPI_DEMO_DIV    26U
+
+static void uart_put_hex(uint32_t value) {
+    uart_putc(hex_char((value >> 4) & 0xFU));
+    uart_putc(hex_char(value & 0xFU));
+}
+
+static uint32_t spi_transfer(uint32_t tx) {
+    SPI_TXDATA = tx;
+    while (SPI_SR & SPI_SR_BUSY) {
+    }
+    return SPI_RXDATA & 0xFFU;
+}
+
+/* Sends each character typed on the UART over SPI, and reports both directions. A
+ * slave answers during the next transfer, so RX is its reply to the previous byte. */
+static void spi_demo(void) {
+    SPI_CR = SPI_CR_ENABLE | SPI_CR_AUTO_CS | SPI_CR_DIV(SPI_DEMO_DIV);
+    uart_puts("IBEX SPI DEMO\r\n");
+
+    while (1) {
+        if (UART_STATUS & UART_RX_VALID) {
+            uint32_t tx = UART_DATA & 0xFFU;
+            uint32_t rx = spi_transfer(tx);
+            uart_puts("SPI TX ");
+            uart_put_hex(tx);
+            uart_puts(" RX ");
+            uart_put_hex(rx);
+            uart_puts("\r\n");
+        }
+        GPIO_OUT = ~((read_cycle_counter() >> HEARTBEAT_BIT) & 1U) & 0x3FU;
+    }
+}
+#endif
+
 int main(void) {
+#ifdef SPI_DEMO
+    spi_demo();
+#endif
 #ifdef FORCE_MISALIGNED_STORE
     /* A direct sw, because -mstrict-align turns a C store into safe byte stores.
      * The adapter must refuse it, so this store traps and nothing after it runs. */

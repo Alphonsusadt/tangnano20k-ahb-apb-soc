@@ -42,7 +42,7 @@ This project is under active development.
 | SoC system without a CPU | Regression through the bus to the chip pins passes: 15,545 checks, including random traffic |
 | FPGA self-test image, no CPU | Regression from the board pins passes: 175 checks, including injected faults |
 | OBI-to-AHB adapter | Random regression passes: 1,351,409 checks across five traffic and wait-state profiles |
-| Ibex integration | Firmware runs on Ibex in Verilator simulation: 57 checks from the chip pins, including misaligned store and ROM store traps |
+| Ibex integration | Firmware runs on Ibex in Verilator simulation: 133 checks from the chip pins, including misaligned store and ROM store traps, and an SPI exchange with a model of an external slave |
 | Bare-metal firmware | Self-test, UART echo, and LED firmware runs in simulation and on the board |
 | FPGA synthesis and timing with Ibex | Gowin place and route completes; 27 MHz constraint met in timing analysis (see [FPGA Implementation](#fpga-implementation)) |
 | FPGA board test | CPU-free self-test image runs on a Tang Nano 20K: `SOC PASS` report, UART echo, LEDs, and S2 confirmed by hand. Ibex image runs on the same board: `IBEX PASS` report, UART echo, LEDs, and S2 confirmed by hand. SPI pins not yet measured |
@@ -107,6 +107,7 @@ tangnano-soc-portfolio/
 |   `-- tb_soc_top.sv
 |-- fpga/
 |   |-- build.tcl                  # Batch build script
+|   |-- build_spi_demo.tcl         # Batch build of the SPI demo image
 |   |-- selftest_rom.hex           # ROM image checked by the self-test
 |   |-- tangnano20k.cst            # Board pin constraints
 |   |-- tangnano20k.sdc            # Clock constraint
@@ -324,6 +325,26 @@ iverilog -g2012 -s tb_fpga_top -o work/sim_fpga \
   dv/tb_fpga_top.sv rtl/fpga/fpga_top.sv rtl/fpga/ahb_selftest_master.sv \
   rtl/soc_top.sv rtl/memory/ahb_sram.sv rtl/interconnect/*.sv rtl/peripherals/*.v
 vvp work/sim_fpga
+```
+
+### SPI Demo with an External Slave
+
+The demo image sends each character typed on the serial port over SPI at 500 kHz in mode 0, and reports both directions, for example `SPI TX 62 RX 41`. A slave answers during the next transfer, so `RX` is the reply to the previous byte. The intended slave is an STM32F407 on SPI2. So far this has run only in simulation, against a model of that slave.
+
+| Signal | Tang Nano 20K pin | STM32F407 pin |
+| --- | --- | --- |
+| SCK | 73 | PB13 |
+| MOSI | 74 | PB15 |
+| MISO | 71 | PB14 |
+| CS | 72 | PB12 |
+| GND | GND | GND |
+
+Connect the grounds, but not the supply rails. Build the firmware on Linux or WSL, then build the bitstream from `fpga/build/`. The result is `impl/pnr/tangnano20k_spi_demo.fs`.
+
+```bash
+make -C sw firmware_spi_demo.hex NAME=firmware_spi_demo CFLAGS_EXTRA=-DSPI_DEMO
+cd fpga/build
+gw_sh ../build_spi_demo.tcl
 ```
 
 ## Engineering Focus

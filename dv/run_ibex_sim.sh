@@ -21,6 +21,8 @@ make -C sw clean NAME=firmware_trap > /dev/null
 make -C sw firmware_trap.hex NAME=firmware_trap CFLAGS_EXTRA="-DFORCE_MISALIGNED_STORE"
 make -C sw clean NAME=firmware_rom_fault > /dev/null
 make -C sw firmware_rom_fault.hex NAME=firmware_rom_fault CFLAGS_EXTRA="-DFORCE_ROM_STORE"
+make -C sw clean NAME=firmware_spi_demo > /dev/null
+make -C sw firmware_spi_demo.hex NAME=firmware_spi_demo CFLAGS_EXTRA="-DSPI_DEMO"
 
 SOURCES=(
     "$IBEX_DIR/rtl/ibex_pkg.sv"
@@ -91,3 +93,5 @@ echo "--- Misaligned store run"
 "$OBJ_DIR/sim" +image=sw/firmware_trap.hex +expect_trap
 echo "--- ROM store run"
 "$OBJ_DIR/sim" +image=sw/firmware_rom_fault.hex +expect_rom_fault
+echo "--- SPI demo run, with a model of the external slave"
+"$OBJ_DIR/sim" +image=sw/firmware_spi_demo.hex +spi_demo

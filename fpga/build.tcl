@@ -2,6 +2,7 @@
 #   gw_sh ../build.tcl
 # Check the log for warning EX3988, which means the ROM image was not found.
 set ibex ../../third_party/ibex ;# lowRISC Ibex at commit f4515520
+if {![info exists spi_demo]} {set spi_demo 0} ;# build_spi_demo.tcl sets this
 
 set_device GW2AR-LV18QN88C8/I7 -device_version C
 
@@ -51,6 +52,7 @@ add_file $ibex/vendor/lowrisc_ip/ip/prim_generic/rtl/prim_flop.sv
 add_file ../../rtl/core/prim_clock_gating.sv
 add_file ../../rtl/core/ibex_ahb_cpu.sv
 add_file ../../rtl/fpga/fpga_top.sv
+if {$spi_demo} {add_file ../../rtl/fpga/fpga_top_spi_demo.sv}
 add_file ../../rtl/fpga/ahb_selftest_master.sv
 add_file ../../rtl/soc_top.sv
 add_file ../../rtl/interconnect/obi_to_ahb_adapter.sv
@@ -63,8 +65,8 @@ add_file ../../rtl/peripherals/apb_gpio.v
 add_file ../tangnano20k.cst
 add_file ../tangnano20k.sdc
 
-set_option -output_base_name tangnano20k_soc
-set_option -top_module fpga_top
+set_option -output_base_name [expr {$spi_demo ? "tangnano20k_spi_demo" : "tangnano20k_soc"}]
+set_option -top_module [expr {$spi_demo ? "fpga_top_spi_demo" : "fpga_top"}]
 set_option -verilog_std sysv2017
 set_option -include_path "$ibex/vendor/lowrisc_ip/ip/prim/rtl;$ibex/rtl;$ibex/vendor/lowrisc_ip/dv/sv/dv_utils"
 
