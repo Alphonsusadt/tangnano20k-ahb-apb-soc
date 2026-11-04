@@ -6,6 +6,8 @@
 //              adapter must refuse, so it must trap with nothing written to the bus.
 //              With +expect_rom_fault, the firmware stores to the ROM. The store reaches
 //              the bus, the ROM answers ERROR, and the core must trap.
+//              With +expect_unmapped_fault, the same store goes to an unmapped address,
+//              and the default slave answers ERROR.
 //              With +spi_demo, the demo firmware talks to a model of an external SPI
 //              slave, like the STM32F407 sketch: it answers each byte in upper case
 //              during the next transfer.
@@ -234,7 +236,7 @@ module tb_soc_ibex;
         $finish;
     endtask
 
-    task automatic run_rom_fault_test;
+    task automatic run_bus_fault_test(input string target);
         @(negedge clk);
         rst_n = 1'b1;
         guard = 0;
@@ -246,7 +248,7 @@ module tb_soc_ibex;
         if (rx_count != 1) print_log;
         check("Firmware sends only the trap character", rx_count == 1);
         check("That character is the trap marker", rx_log[0] === 8'h21);
-        check("The ROM answers the store with an AHB error", error_responses != 0);
+        check({"The ", target, " answers the store with an AHB error"}, error_responses != 0);
         $display("RESULT: %0d checks, %0d failures", checks, failures);
         $finish;
     endtask
@@ -325,7 +327,8 @@ module tb_soc_ibex;
         check("LEDs are off in reset", led === 6'b111111);
         check("UART idles high in reset", uart_tx === 1'b1);
         if ($test$plusargs("expect_trap")) run_trap_test;
-        if ($test$plusargs("expect_rom_fault")) run_rom_fault_test;
+        if ($test$plusargs("expect_rom_fault")) run_bus_fault_test("ROM");
+        if ($test$plusargs("expect_unmapped_fault")) run_bus_fault_test("default slave");
         if (spi_demo_mode) run_spi_demo_test;
         @(negedge clk);
         rst_n = 1'b1;

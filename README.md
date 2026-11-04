@@ -42,7 +42,8 @@ This project is under active development.
 | SoC system without a CPU | Regression through the bus to the chip pins passes: 15,545 checks, including random traffic |
 | FPGA self-test image, no CPU | Regression from the board pins passes: 175 checks, including injected faults |
 | OBI-to-AHB adapter | Random regression passes: 1,351,409 checks across five traffic and wait-state profiles |
-| Ibex integration | Firmware runs on Ibex in Verilator simulation: 133 checks from the chip pins, including misaligned store and ROM store traps, and an SPI exchange with a model of an external slave |
+| Ibex integration | Firmware runs on Ibex in Verilator simulation: 138 checks from the chip pins, including misaligned store, ROM store, and unmapped store traps, and an SPI exchange with a model of an external slave |
+| AHB-Lite bus assertions | 9 SVA rules on the CPU bus pass in all 5 Ibex runs under Verilator; `dv/run_sva_mutants.sh` shows each rule firing on a broken copy of the RTL |
 | Bare-metal firmware | Self-test, UART echo, and LED firmware runs in simulation and on the board |
 | FPGA synthesis and timing with Ibex | Gowin place and route completes; 27 MHz constraint met in timing analysis (see [FPGA Implementation](#fpga-implementation)) |
 | FPGA board test | CPU-free self-test image runs on a Tang Nano 20K: `SOC PASS` report, UART echo, LEDs, and S2 confirmed by hand. Ibex image runs on the same board: `IBEX PASS` report, UART echo, LEDs, and S2 confirmed by hand. SPI demo image exchanges bytes with an STM32F407 slave at 500 kHz: 8 typed transfers confirmed by hand. SPI signals not yet measured |
@@ -102,6 +103,8 @@ tangnano-soc-portfolio/
 |   |-- tb_obi_to_ahb.sv
 |   |-- run_ibex_sim.sh
 |   |-- run_regression.sh         # Runs every self-checking test
+|   |-- run_sva_mutants.sh        # Shows that each assertion can fail, slow
+|   |-- sva/                      # AHB-Lite assertions, bound to soc_top
 |   |-- tb_soc_ibex.sv
 |   |-- tb_soc_system.sv
 |   `-- tb_soc_top.sv
@@ -363,6 +366,7 @@ This project is intended to demonstrate practical understanding of:
 ## Known Limitations
 
 - The current verification environment is primarily directed testing; coverage-driven and formal verification are future improvements.
+- Assertions cover only the AHB-Lite bus between the CPU and the interconnect, and run only in the Ibex simulation. The APB side has none, and those runs never reach the bridge ERROR path from `PSLVERR`.
 - Only the FPGA clock is constrained; I/O timing is not.
 - CPU interrupts and the debug module are not connected.
 - The UART and SPI have no FIFOs, and `GPIO_DIR` does not affect the pins; see [`docs/memory_map.md`](docs/memory_map.md).
@@ -371,7 +375,7 @@ This project is intended to demonstrate practical understanding of:
 
 ## Future Work
 
-- Add AHB bridge and interconnect assertions.
+- Add APB and bridge assertions, and run the bus assertions on the random traffic tests.
 - Add functional coverage.
 - Add a reusable SystemVerilog verification environment.
 - Constrain FPGA I/O timing.

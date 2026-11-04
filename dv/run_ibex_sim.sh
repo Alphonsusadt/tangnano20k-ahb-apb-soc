@@ -23,6 +23,8 @@ make -C sw clean NAME=firmware_rom_fault > /dev/null
 make -C sw firmware_rom_fault.hex NAME=firmware_rom_fault CFLAGS_EXTRA="-DFORCE_ROM_STORE"
 make -C sw clean NAME=firmware_spi_demo > /dev/null
 make -C sw firmware_spi_demo.hex NAME=firmware_spi_demo CFLAGS_EXTRA="-DSPI_DEMO"
+make -C sw clean NAME=firmware_unmapped > /dev/null
+make -C sw firmware_unmapped.hex NAME=firmware_unmapped CFLAGS_EXTRA="-DFORCE_UNMAPPED_STORE"
 
 SOURCES=(
     "$IBEX_DIR/rtl/ibex_pkg.sv"
@@ -73,11 +75,13 @@ SOURCES=(
     rtl/peripherals/apb_gpio.v
     rtl/peripherals/apb_spi.v
     rtl/peripherals/apb_uart.v
+    dv/sva/ahb_lite_checks.sv
+    dv/sva/soc_top_checks_bind.sv
     dv/tb_soc_ibex.sv
 )
 
 # The .v peripherals use SystemVerilog, so the language is set for every file.
-verilator --binary --timing -j 0 -Wno-fatal -Wno-lint -Wno-style \
+verilator --binary --timing --assert -j 0 -Wno-fatal -Wno-lint -Wno-style \
     --default-language 1800-2017 \
     --top-module tb_soc_ibex --Mdir "$OBJ_DIR" -o sim \
     "+incdir+$PRIM" "+incdir+$IBEX_DIR/rtl" \
@@ -93,5 +97,7 @@ echo "--- Misaligned store run"
 "$OBJ_DIR/sim" +image=sw/firmware_trap.hex +expect_trap
 echo "--- ROM store run"
 "$OBJ_DIR/sim" +image=sw/firmware_rom_fault.hex +expect_rom_fault
+echo "--- Unmapped store run"
+"$OBJ_DIR/sim" +image=sw/firmware_unmapped.hex +expect_unmapped_fault
 echo "--- SPI demo run, with a model of the external slave"
 "$OBJ_DIR/sim" +image=sw/firmware_spi_demo.hex +spi_demo

@@ -66,7 +66,19 @@ fi
 if command -v verilator > /dev/null && command -v riscv64-unknown-elf-gcc > /dev/null; then
     log=work/ibex.log
     bash dv/run_ibex_sim.sh > "$log" 2>&1
-    report "Ibex firmware and traps" "$?" "$log" 4
+    report "Ibex firmware and traps" "$?" "$log" 5
+
+    # An assertion whose condition never happened proves nothing, so every counter
+    # printed by dv/sva/ahb_lite_checks.sv must be above zero across the runs.
+    unexercised=$(grep -a '^SVA: ' "$log" | tr -d '\r' | tr ' ' '\n' |
+        awk -F= '/=/ { sum[$1] += $2 } END { for (k in sum) if (sum[k] == 0) printf "%s ", k }')
+    if grep -aq '^SVA: ' "$log" && [ -z "$unexercised" ]; then
+        printf 'PASS  %-24s all counters above zero\n' "SVA rules exercised"
+        passed=$((passed + 1))
+    else
+        printf 'FAIL  %-24s not exercised: %s\n' "SVA rules exercised" "${unexercised:-no SVA report}"
+        failed=$((failed + 1))
+    fi
 
     # The checked-in image must match the source, or the bitstream runs old firmware.
     make -C sw firmware_check.hex NAME=firmware_check > /dev/null 2>&1
@@ -80,7 +92,7 @@ if command -v verilator > /dev/null && command -v riscv64-unknown-elf-gcc > /dev
     make -C sw clean NAME=firmware_check > /dev/null 2>&1
 else
     echo "SKIP  Ibex tests               verilator or riscv64-unknown-elf-gcc not found"
-    skipped=$((skipped + 2))
+    skipped=$((skipped + 3))
 fi
 
 echo "---"
