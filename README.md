@@ -1,5 +1,7 @@
 # Tang Nano 20K Ibex SoC
 
+[![Regression](https://github.com/Alphonsusadt/tangnano20k-ahb-apb-soc/actions/workflows/regression.yml/badge.svg)](https://github.com/Alphonsusadt/tangnano20k-ahb-apb-soc/actions/workflows/regression.yml)
+
 An educational RISC-V SoC platform targeting the Sipeed Tang Nano 20K FPGA. The project combines the lowRISC Ibex CPU core with a custom memory-mapped peripheral subsystem based on AHB-Lite and APB4.
 
 The main engineering goals are to practice RTL design, bus integration, hardware/software co-design, simulation-based verification, and FPGA implementation using an ASIC-oriented design mindset.
@@ -155,7 +157,7 @@ The verification strategy follows a staged approach:
 bash dv/run_regression.sh
 ```
 
-A test passes only if it exits cleanly and reports `0 failures`, and the script exits with 1 if any test fails. When the Ibex tools are present, it also checks that `sw/firmware.hex` matches the firmware source. Logs are written to `work/`. The sections below run each test on its own.
+A test passes only if it exits cleanly and reports `0 failures`, and the script exits with 1 if any test fails. When the Ibex tools are present, it also checks that `sw/firmware.hex` matches the firmware source. Logs are written to `work/`. GitHub Actions runs the same script on every push, and treats a skipped test as a failure. The sections below run each test on its own.
 
 ### Run the SPI Unit Testbench
 
@@ -357,4 +359,6 @@ This project is intended to demonstrate practical understanding of:
 
 ## License
 
-This repository contains original integration and peripheral RTL together with third-party components. Each third-party component remains subject to its original license. The CPU core in `third_party/ibex` is licensed under Apache 2.0; see `third_party/ibex/LICENSE`.
+Copyright 2026 Alphonsus Aditya Putera Wahyudi.
+
+The original code in this repository is licensed under Apache 2.0; see `LICENSE`. The CPU core in `third_party/ibex` is a separate lowRISC project, also under Apache 2.0, and keeps its own license in `third_party/ibex/LICENSE`.

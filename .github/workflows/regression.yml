@@ -1,0 +1,59 @@
+name: Regression
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  regression:
+    runs-on: ubuntu-latest
+    # Ubuntu 22.04 provides GCC 10.2, which reproduces the checked-in sw/firmware.hex.
+    # Another compiler version would fail that check without any source change.
+    container: ubuntu:22.04
+    steps:
+      - name: Install tools
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            autoconf bison ca-certificates curl flex g++ gcc-riscv64-unknown-elf git \
+            help2man iverilog libfl-dev make perl python3 zlib1g-dev
+
+      - uses: actions/checkout@v4
+
+      - name: Restore Verilator
+        id: verilator
+        uses: actions/cache@v4
+        with:
+          path: /opt/verilator
+          key: verilator-5.024-ubuntu-22.04
+
+      # Ubuntu 22.04 packages Verilator 4, and the Ibex test needs version 5.
+      - name: Build Verilator
+        if: steps.verilator.outputs.cache-hit != 'true'
+        run: |
+          curl -fsSL https://github.com/verilator/verilator/archive/refs/tags/v5.024.tar.gz | tar -xz -C /tmp
+          cd /tmp/verilator-5.024
+          autoconf
+          ./configure --prefix=/opt/verilator
+          make -j"$(nproc)"
+          make install
+
+      - name: Add Verilator to PATH
+        run: echo /opt/verilator/bin >> "$GITHUB_PATH"
+
+      # A skipped test would look like a pass, so CI treats it as a failure.
+      - name: Run regression
+        shell: bash
+        run: |
+          bash dv/run_regression.sh | tee regression.log
+          ! grep -q '^SKIP' regression.log
+
+      - name: Upload logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: regression-logs
+          path: work/*.log
