@@ -191,6 +191,11 @@ int main(void) {
     /* The default slave answers this store with ERROR, so it traps and nothing after it runs. */
     __asm__ volatile ("sw %0, 0(%1)" : : "r"(0xFFFFFFFFU), "r"(0x60000000U));
 #endif
+#ifdef FORCE_APB_SLVERR
+    /* UART + 0x010 is past the last UART register, so the UART answers PSLVERR and
+     * the bridge turns it into ERROR. The store traps and nothing after it runs. */
+    __asm__ volatile ("sw %0, 0(%1)" : : "r"(0xFFFFFFFFU), "r"(0x40000010U));
+#endif
 
     uint32_t failed = run_self_test();
 

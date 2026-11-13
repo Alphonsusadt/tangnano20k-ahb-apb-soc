@@ -8,6 +8,9 @@
 //              the bus, the ROM answers ERROR, and the core must trap.
 //              With +expect_unmapped_fault, the same store goes to an unmapped address,
 //              and the default slave answers ERROR.
+//              With +expect_apb_fault, the store goes to UART + 0x010, past the last
+//              UART register. The UART answers PSLVERR, the bridge must turn it into
+//              ERROR, and the core must trap.
 //              With +spi_demo, the demo firmware talks to a model of an external SPI
 //              slave, like the STM32F407 sketch: it answers each byte in upper case
 //              during the next transfer.
@@ -80,6 +83,11 @@ module tb_soc_ibex;
     ) u_dut (
         .clk_27m  (clk),
         .rst_n    (rst_n),
+        .ext_haddr  (32'h0),
+        .ext_htrans (2'b00),
+        .ext_hwrite (1'b0),
+        .ext_hsize  (3'b000),
+        .ext_hwdata (32'h0),
         .btn_s2   (btn_s2),
         .uart_tx  (uart_tx),
         .uart_rx  (uart_rx),
@@ -176,6 +184,20 @@ module tb_soc_ibex;
         end
     end
 
+    // Completed APB transfers that a peripheral answered with PSLVERR. Read inside
+    // the SoC, so the APB fault test cannot pass on an ERROR from another slave.
+    integer pslverr_responses = 0;
+
+    always @(posedge clk) begin
+        if (rst_n === 1'b1 && u_dut.apb_penable === 1'b1) begin
+            if ((u_dut.psel_uart === 1'b1 && u_dut.pready_uart === 1'b1 && u_dut.pslverr_uart === 1'b1) ||
+                (u_dut.psel_spi  === 1'b1 && u_dut.pready_spi  === 1'b1 && u_dut.pslverr_spi  === 1'b1) ||
+                (u_dut.psel_gpio === 1'b1 && u_dut.pready_gpio === 1'b1 && u_dut.pslverr_gpio === 1'b1)) begin
+                pslverr_responses++;
+            end
+        end
+    end
+
     task automatic wait_cycles(input integer n);
         repeat (n) @(posedge clk);
     endtask
@@ -236,7 +258,7 @@ module tb_soc_ibex;
         $finish;
     endtask
 
-    task automatic run_bus_fault_test(input string target);
+    task automatic run_bus_fault_test(input string target, input bit through_apb = 1'b0);
         @(negedge clk);
         rst_n = 1'b1;
         guard = 0;
@@ -249,6 +271,11 @@ module tb_soc_ibex;
         check("Firmware sends only the trap character", rx_count == 1);
         check("That character is the trap marker", rx_log[0] === 8'h21);
         check({"The ", target, " answers the store with an AHB error"}, error_responses != 0);
+        if (through_apb) begin
+            check("The peripheral answers exactly one APB transfer with PSLVERR", pslverr_responses == 1);
+        end else begin
+            check("No peripheral answers with PSLVERR", pslverr_responses == 0);
+        end
         $display("RESULT: %0d checks, %0d failures", checks, failures);
         $finish;
     endtask
@@ -329,6 +356,7 @@ module tb_soc_ibex;
         if ($test$plusargs("expect_trap")) run_trap_test;
         if ($test$plusargs("expect_rom_fault")) run_bus_fault_test("ROM");
         if ($test$plusargs("expect_unmapped_fault")) run_bus_fault_test("default slave");
+        if ($test$plusargs("expect_apb_fault")) run_bus_fault_test("UART, through the bridge,", 1'b1);
         if (spi_demo_mode) run_spi_demo_test;
         @(negedge clk);
         rst_n = 1'b1;
