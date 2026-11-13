@@ -25,6 +25,8 @@ make -C sw clean NAME=firmware_spi_demo > /dev/null
 make -C sw firmware_spi_demo.hex NAME=firmware_spi_demo CFLAGS_EXTRA="-DSPI_DEMO"
 make -C sw clean NAME=firmware_unmapped > /dev/null
 make -C sw firmware_unmapped.hex NAME=firmware_unmapped CFLAGS_EXTRA="-DFORCE_UNMAPPED_STORE"
+make -C sw clean NAME=firmware_apb_fault > /dev/null
+make -C sw firmware_apb_fault.hex NAME=firmware_apb_fault CFLAGS_EXTRA="-DFORCE_APB_SLVERR"
 
 SOURCES=(
     "$IBEX_DIR/rtl/ibex_pkg.sv"
@@ -65,6 +67,7 @@ SOURCES=(
     "$PRIM/prim_secded_inv_64_57_dec.sv"
     "$PRIM_GENERIC/prim_buf.sv"
     "$PRIM_GENERIC/prim_flop.sv"
+    rtl/soc_pkg.sv
     rtl/core/prim_clock_gating.sv
     rtl/core/ibex_ahb_cpu.sv
     rtl/interconnect/obi_to_ahb_adapter.sv
@@ -72,10 +75,11 @@ SOURCES=(
     rtl/memory/ahb_sram.sv
     rtl/interconnect/ahb_interconnect.sv
     rtl/interconnect/ahb_to_apb_bridge.sv
-    rtl/peripherals/apb_gpio.v
-    rtl/peripherals/apb_spi.v
-    rtl/peripherals/apb_uart.v
+    rtl/peripherals/apb_gpio.sv
+    rtl/peripherals/apb_spi.sv
+    rtl/peripherals/apb_uart.sv
     dv/sva/ahb_lite_checks.sv
+    dv/sva/apb_checks.sv
     dv/sva/soc_top_checks_bind.sv
     dv/tb_soc_ibex.sv
 )
@@ -99,5 +103,7 @@ echo "--- ROM store run"
 "$OBJ_DIR/sim" +image=sw/firmware_rom_fault.hex +expect_rom_fault
 echo "--- Unmapped store run"
 "$OBJ_DIR/sim" +image=sw/firmware_unmapped.hex +expect_unmapped_fault
+echo "--- APB store to a missing UART register, answered with PSLVERR"
+"$OBJ_DIR/sim" +image=sw/firmware_apb_fault.hex +expect_apb_fault
 echo "--- SPI demo run, with a model of the external slave"
 "$OBJ_DIR/sim" +image=sw/firmware_spi_demo.hex +spi_demo

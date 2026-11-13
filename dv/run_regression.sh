@@ -9,8 +9,8 @@
 set -u
 
 PATH="$HOME/.local/bin:$PATH"
-PERIPHERALS="rtl/peripherals/apb_gpio.v rtl/peripherals/apb_spi.v rtl/peripherals/apb_uart.v"
-SOC="rtl/soc_top.sv rtl/memory/ahb_sram.sv rtl/interconnect/ahb_interconnect.sv rtl/interconnect/ahb_to_apb_bridge.sv $PERIPHERALS"
+PERIPHERALS="rtl/peripherals/apb_gpio.sv rtl/peripherals/apb_spi.sv rtl/peripherals/apb_uart.sv"
+SOC="rtl/soc_pkg.sv rtl/soc_top.sv rtl/memory/ahb_sram.sv rtl/interconnect/ahb_interconnect.sv rtl/interconnect/ahb_to_apb_bridge.sv $PERIPHERALS"
 
 passed=0
 failed=0
@@ -48,12 +48,12 @@ run_icarus() {
 }
 
 if command -v iverilog > /dev/null && command -v vvp > /dev/null; then
-    run_icarus tb_apb_spi           dv/tb_apb_spi.sv rtl/peripherals/apb_spi.v
-    run_icarus tb_apb_uart          dv/tb_apb_uart.sv rtl/peripherals/apb_uart.v
+    run_icarus tb_apb_spi           dv/tb_apb_spi.sv rtl/peripherals/apb_spi.sv
+    run_icarus tb_apb_uart          dv/tb_apb_uart.sv rtl/peripherals/apb_uart.sv
     run_icarus tb_apb_pstrb         dv/tb_apb_pstrb.sv $PERIPHERALS
     run_icarus tb_ahb_sram          dv/tb_ahb_sram.sv rtl/memory/ahb_sram.sv
-    run_icarus tb_ahb_interconnect  dv/tb_ahb_interconnect.sv rtl/interconnect/ahb_interconnect.sv
-    run_icarus tb_ahb_to_apb_bridge dv/tb_ahb_to_apb_bridge.sv rtl/interconnect/ahb_to_apb_bridge.sv
+    run_icarus tb_ahb_interconnect  dv/tb_ahb_interconnect.sv rtl/soc_pkg.sv rtl/interconnect/ahb_interconnect.sv
+    run_icarus tb_ahb_to_apb_bridge dv/tb_ahb_to_apb_bridge.sv rtl/soc_pkg.sv rtl/interconnect/ahb_to_apb_bridge.sv
     run_icarus tb_obi_to_ahb        dv/tb_obi_to_ahb.sv rtl/interconnect/obi_to_ahb_adapter.sv
     run_icarus tb_soc_sram          dv/tb_soc_sram.sv $SOC
     run_icarus tb_soc_system        dv/tb_soc_system.sv $SOC
@@ -66,7 +66,7 @@ fi
 if command -v verilator > /dev/null && command -v riscv64-unknown-elf-gcc > /dev/null; then
     log=work/ibex.log
     bash dv/run_ibex_sim.sh > "$log" 2>&1
-    report "Ibex firmware and traps" "$?" "$log" 5
+    report "Ibex firmware and traps" "$?" "$log" 6
 
     # An assertion whose condition never happened proves nothing, so every counter
     # printed by dv/sva/ahb_lite_checks.sv must be above zero across the runs.
@@ -78,6 +78,32 @@ if command -v verilator > /dev/null && command -v riscv64-unknown-elf-gcc > /dev
     else
         printf 'FAIL  %-24s not exercised: %s\n' "SVA rules exercised" "${unexercised:-no SVA report}"
         failed=$((failed + 1))
+    fi
+
+    # The system testbench under Verilator. Its stimulus is the same as under Icarus, so
+    # the two runs should report the same checks.
+    if verilator --binary --timing -Wno-fatal -Wno-lint -Wno-style --default-language 1800-2017         --top-module tb_soc_system --Mdir work/obj_soc_system -o sim_soc_system         dv/tb_soc_system.sv $SOC > work/tb_soc_system_verilator.log 2>&1; then
+        work/obj_soc_system/sim_soc_system >> work/tb_soc_system_verilator.log 2>&1
+        report "tb_soc_system (Verilator)" "$?" work/tb_soc_system_verilator.log 1
+    else
+        printf 'FAIL  %-24s build error, see %s
+' "tb_soc_system (Verilator)" work/tb_soc_system_verilator.log
+        failed=$((failed + 1))
+    fi
+
+    # Random OBI adapter traffic with the AHB protocol assertions, and a copy of the
+    # adapter that drops the owner lock, which the assertions must catch.
+    if bash dv/run_obi_sva.sh; then
+        passed=$((passed + 2))
+    else
+        failed=$((failed + 2))
+    fi
+
+    # APB assertions with real PREADY stalls, and a bridge that moves PADDR during one.
+    if bash dv/run_apb_wait.sh; then
+        passed=$((passed + 2))
+    else
+        failed=$((failed + 2))
     fi
 
     # The checked-in image must match the source, or the bitstream runs old firmware.

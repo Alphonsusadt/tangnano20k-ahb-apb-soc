@@ -39,11 +39,12 @@ This project is under active development.
 | AHB interconnect and default slave | Directed unit regression passes: 299 checks |
 | APB write strobes (GPIO, UART, SPI) | Directed regression passes: 62 checks |
 | AHB-to-APB4 bridge | Directed unit regression passes: 1,872 checks |
-| SoC system without a CPU | Regression through the bus to the chip pins passes: 15,545 checks, including random traffic |
+| SoC system without a CPU | Regression through the bus to the chip pins passes in Icarus and Verilator: 15,575 checks, including random traffic |
 | FPGA self-test image, no CPU | Regression from the board pins passes: 175 checks, including injected faults |
 | OBI-to-AHB adapter | Random regression passes: 1,351,409 checks across five traffic and wait-state profiles |
-| Ibex integration | Firmware runs on Ibex in Verilator simulation: 138 checks from the chip pins, including misaligned store, ROM store, and unmapped store traps, and an SPI exchange with a model of an external slave |
-| AHB-Lite bus assertions | 9 SVA rules on the CPU bus pass in all 5 Ibex runs under Verilator; `dv/run_sva_mutants.sh` shows each rule firing on a broken copy of the RTL |
+| Ibex integration | Firmware runs on Ibex in Verilator simulation: 146 checks from the chip pins, including misaligned store, ROM store, unmapped store, and peripheral `PSLVERR` traps, and an SPI exchange with a model of an external slave |
+| AHB-Lite bus assertions | 9 SVA rules on the CPU bus pass in all 6 Ibex runs under Verilator, including an `ERROR` from the AHB-to-APB bridge; `dv/run_sva_mutants.sh` shows each rule firing on a broken copy of the RTL |
+| APB bus assertions | 5 SVA rules between the bridge and the peripherals pass in the Ibex runs; `dv/run_apb_wait.sh` stalls `PREADY` for 0-3 cycles and checks that the bridge holds the address, and a broken bridge fails |
 | Bare-metal firmware | Self-test, UART echo, and LED firmware runs in simulation and on the board |
 | FPGA synthesis and timing with Ibex | Gowin place and route completes; 27 MHz constraint met in timing analysis (see [FPGA Implementation](#fpga-implementation)) |
 | FPGA board test | CPU-free self-test image runs on a Tang Nano 20K: `SOC PASS` report, UART echo, LEDs, and S2 confirmed by hand. Ibex image runs on the same board: `IBEX PASS` report, UART echo, LEDs, and S2 confirmed by hand. SPI demo image exchanges bytes with an STM32F407 slave at 500 kHz: 8 typed transfers confirmed by hand. SPI signals not yet measured |
@@ -168,7 +169,7 @@ A test passes only if it exits cleanly and reports `0 failures`, and the script 
 Using Icarus Verilog:
 
 ```bash
-iverilog -g2012 -o sim_spi dv/tb_apb_spi.sv rtl/peripherals/apb_spi.v
+iverilog -g2012 -o sim_spi dv/tb_apb_spi.sv rtl/peripherals/apb_spi.sv
 vvp sim_spi
 gtkwave tb_apb_spi.vcd
 ```
@@ -209,7 +210,7 @@ iverilog -g2012 -s tb_soc_system -o work/sim_system \
   rtl/soc_top.sv \
   rtl/memory/*.sv \
   rtl/interconnect/*.sv \
-  rtl/peripherals/*.v
+  rtl/peripherals/*.sv
 vvp work/sim_system
 ```
 
@@ -222,7 +223,7 @@ vvp work/sim_system
 mkdir -p work
 iverilog -g2012 -s tb_apb_pstrb -o work/sim_pstrb \
   dv/tb_apb_pstrb.sv \
-  rtl/peripherals/*.v
+  rtl/peripherals/*.sv
 vvp work/sim_pstrb
 ```
 
@@ -243,7 +244,7 @@ iverilog -g2012 -s tb_soc_sram -o work/sim_soc_sram \
   rtl/soc_top.sv \
   rtl/memory/*.sv \
   rtl/interconnect/*.sv \
-  rtl/peripherals/*.v
+  rtl/peripherals/*.sv
 vvp work/sim_soc_sram
 ```
 
@@ -258,7 +259,7 @@ iverilog -g2012 -o sim_soc \
   rtl/soc_top.sv \
   rtl/memory/*.sv \
   rtl/interconnect/*.sv \
-  rtl/peripherals/*.v
+  rtl/peripherals/*.sv
 
 vvp sim_soc
 ```
@@ -326,7 +327,7 @@ Setting `USE_IBEX` to 0 and `BOOT_HEX_FILE` to `../selftest_rom.hex` in `fpga_to
 ```bash
 iverilog -g2012 -s tb_fpga_top -o work/sim_fpga \
   dv/tb_fpga_top.sv rtl/fpga/fpga_top.sv rtl/fpga/ahb_selftest_master.sv \
-  rtl/soc_top.sv rtl/memory/ahb_sram.sv rtl/interconnect/*.sv rtl/peripherals/*.v
+  rtl/soc_pkg.sv rtl/soc_top.sv rtl/memory/ahb_sram.sv rtl/interconnect/*.sv rtl/peripherals/*.sv
 vvp work/sim_fpga
 ```
 
@@ -366,7 +367,7 @@ This project is intended to demonstrate practical understanding of:
 ## Known Limitations
 
 - The current verification environment is primarily directed testing; coverage-driven and formal verification are future improvements.
-- Assertions cover only the AHB-Lite bus between the CPU and the interconnect, and run only in the Ibex simulation. The APB side has none, and those runs never reach the bridge ERROR path from `PSLVERR`.
+- Assertions cover the AHB-Lite bus between the CPU and the interconnect, and the APB bus behind the bridge. They run in the Ibex simulation and in the APB stall test, and the APB stall test does not run the peripherals themselves.
 - Only the FPGA clock is constrained; I/O timing is not.
 - CPU interrupts and the debug module are not connected.
 - The UART and SPI have no FIFOs, and `GPIO_DIR` does not affect the pins; see [`docs/memory_map.md`](docs/memory_map.md).
