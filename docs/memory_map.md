@@ -15,7 +15,9 @@ Sistem menggunakan bus **AHB-Lite 32-bit** sebagai interkoneksi utama untuk CPU,
 | `0x4000_0000` | `0x4000_0FFF` | 4 KB | APB | **APB UART Controller** | R / W |
 | `0x4000_1000` | `0x4000_1FFF` | 4 KB | APB | **APB SPI Master Controller** | R / W |
 | `0x4000_2000` | `0x4000_2FFF` | 4 KB | APB | **APB GPIO (LED & tombol)** | R / W |
-| `0x4000_3000` | `0x4FFF_FFFF` | - | APB | *Reserved / Ekstensi Masa Depan* | - |
+| `0x4000_3000` | `0x4000_3FFF` | 4 KB | APB | **Timer (`mtime` / `mtimecmp`)**, lihat bagian 5 | R / W |
+| `0x4000_4000` | `0x4000_4FFF` | 4 KB | APB | **Kontrol sistem (CPU reset dan alamat boot)**, lihat bagian 6 | R / W |
+| `0x4000_5000` | `0x4FFF_FFFF` | - | APB | *Reserved / Ekstensi Masa Depan* | - |
 
 Transfer ke alamat di luar tabel ini dijawab oleh default slave di `ahb_interconnect` dengan `ERROR` dua siklus. Rentang *Reserved* dijawab `ERROR` oleh AHB-to-APB bridge.
 
@@ -114,3 +116,34 @@ Mengontrol LED onboard Tang Nano 20K dan membaca tombol.
 | `0x00` | `GPIO_OUT` | R/W | `0x0000003F` | Bit [5:0] mengontrol status 6 LED onboard (Active Low). |
 | `0x04` | `GPIO_IN` | RO | `0x00000001` | Bit [1]: tombol S2 (PIN 87), `1` = ditekan. Bit [0]: reset internal, selalu `1` saat SoC berjalan, karena S1 (PIN 88) dipakai sebagai reset. |
 | `0x08` | `GPIO_DIR` | R/W | `0x0000003F` | Register penyimpan saja. Nilainya bisa dibaca kembali, tetapi tidak memengaruhi pin LED, yang selalu berupa output. |
+
+---
+
+## 5. Timer (`0x4000_3000`)
+
+Timer 64 bit dengan `mtime` yang naik satu tick per clock sistem (27 MHz, sekitar 37 ns). Tanpa prescaler. Interrupt bersifat level: `irq_timer = mtime >= mtimecmp` saat timer aktif.
+
+| Offset | Nama | Akses | Reset | Deskripsi |
+| :--- | :--- | :--- | :--- | :--- |
+| `0x00` | `MTIME_LO` | R/W | `0x00000000` | `mtime` bit [31:0] |
+| `0x04` | `MTIME_HI` | R/W | `0x00000000` | `mtime` bit [63:32] |
+| `0x08` | `MTIMECMP_LO` | R/W | `0xFFFFFFFF` | `mtimecmp` bit [31:0]. Reset ke maksimum supaya tidak ada interrupt sebelum firmware mengatur |
+| `0x0C` | `MTIMECMP_HI` | R/W | `0xFFFFFFFF` | `mtimecmp` bit [63:32] |
+| `0x10` | `TIMER_CTRL` | R/W | `0x00000000` | Bit [0] `EN`: `1` = `mtime` naik. Bit [1] `IRQ`: RO, `1` jika `mtime >= mtimecmp` |
+
+**Membaca `mtime` 64 bit.** Baca `MTIME_HI`, lalu `MTIME_LO`, lalu `MTIME_HI` lagi. Kalau dua pembacaan `HI` berbeda, ulangi. Ini mencegah carry dari `LO` ke `HI` tercampur.
+
+**Menulis `mtimecmp` 64 bit.** Tulis `MTIMECMP_LO` dengan `0xFFFFFFFF` dulu supaya tidak ada interrupt palsu, lalu tulis `MTIMECMP_HI`, lalu tulis `MTIMECMP_LO` dengan nilai akhir.
+
+**Akses byte.** Tiap byte register mengikuti `PSTRB`, sama dengan periferal lain. Offset di luar `0x10` dijawab `PSLVERR`.
+
+## 6. Kontrol sistem (`0x4000_4000`)
+
+Register untuk loader (F6). Dipakai untuk menahan Ibex saat program dimuat, dan untuk memilih alamat awal.
+
+| Offset | Nama | Akses | Reset | Deskripsi |
+| :--- | :--- | :--- | :--- | :--- |
+| `0x00` | `CPU_CTRL` | R/W | `0x00000001` | Bit [0] `CPU_HOLD`: `1` = Ibex ditahan di reset (reset default). Bit [1] `FETCH_EN`: `fetch_enable_i`, hanya berlaku saat `CPU_HOLD` = `0` |
+| `0x04` | `BOOT_ADDR` | R/W | `0x00000000` | Alamat boot Ibex. Ibex mulai mengambil instruksi di `BOOT_ADDR + 0x80`. Hanya boleh diubah saat `CPU_HOLD` = `1` |
+
+Reset default menahan Ibex, sehingga firmware tidak berjalan sebelum sistem kontrol diatur. Saat ini (sebelum F6) register ini belum tersambung ke Ibex, dan Ibex masih mulai dari `boot_addr_i = 0`.
