@@ -14,6 +14,14 @@ module soc_top #(
     input  wire        clk_27m,
     input  wire        rst_n,
 
+    // External AHB master, used only when neither Ibex nor the self-test master is
+    // selected. Tests drive it through ports instead of force, which Verilator ignores.
+    input  wire [31:0] ext_haddr,
+    input  wire [1:0]  ext_htrans,
+    input  wire        ext_hwrite,
+    input  wire [2:0]  ext_hsize,
+    input  wire [31:0] ext_hwdata,
+
     // Pushbutton input
     input  wire        btn_s2,
 
@@ -77,6 +85,12 @@ module soc_top #(
                 .hready   (cpu_hready),
                 .hresp    (cpu_hresp)
             );
+        end else begin : g_ext
+            assign cpu_haddr  = ext_haddr;
+            assign cpu_htrans = ext_htrans;
+            assign cpu_hwrite = ext_hwrite;
+            assign cpu_hsize  = ext_hsize;
+            assign cpu_hwdata = ext_hwdata;
         end
     endgenerate
 
@@ -181,7 +195,7 @@ module soc_top #(
         end
     end
 
-    always @(posedge clk) begin
+    always_ff @(posedge clk) begin
         if (imem_hsel && (imem_htrans[1])) begin
             imem_hrdata <= rom_mem[imem_haddr[14:2]];
         end
@@ -189,7 +203,7 @@ module soc_top #(
 
     // The ROM is read-only, so an accepted write answers with a two-cycle ERROR. A
     // write still waiting behind a stalled transfer has not been accepted yet.
-    always @(posedge clk or negedge rst_sys_n) begin
+    always_ff @(posedge clk or negedge rst_sys_n) begin
         if (!rst_sys_n) begin
             rom_err_first_q  <= 1'b0;
             rom_err_second_q <= 1'b0;
@@ -225,7 +239,10 @@ module soc_top #(
     wire [31:0] apb_paddr;
     wire [31:0] apb_pwdata;
     wire        apb_pwrite;
+    // The APB protection output is not used by any peripheral here.
+    // verilator lint_off UNUSEDSIGNAL
     wire [2:0]  apb_pprot;
+    // verilator lint_on UNUSEDSIGNAL
     wire [3:0]  apb_pstrb;
     wire        apb_penable;
 

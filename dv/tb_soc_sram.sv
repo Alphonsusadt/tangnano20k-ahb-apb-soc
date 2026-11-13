@@ -49,6 +49,11 @@ module tb_soc_sram;
     soc_top u_dut (
         .clk_27m  (clk),
         .rst_n    (rst_n),
+        .ext_haddr  (haddr),
+        .ext_htrans (htrans),
+        .ext_hwrite (hwrite),
+        .ext_hsize  (hsize),
+        .ext_hwdata (hwdata),
         .btn_s2   (1'b1),
         .uart_tx  (uart_tx),
         .uart_rx  (1'b1),
@@ -58,14 +63,6 @@ module tb_soc_sram;
         .spi_cs_n (spi_cs_n),
         .led      (led)
     );
-
-    initial begin
-        force u_dut.cpu_haddr  = haddr;
-        force u_dut.cpu_htrans = htrans;
-        force u_dut.cpu_hwrite = hwrite;
-        force u_dut.cpu_hsize  = hsize;
-        force u_dut.cpu_hwdata = hwdata;
-    end
 
     task automatic check_eq(input [31:0] got, input [31:0] want, input string what);
         checks = checks + 1;

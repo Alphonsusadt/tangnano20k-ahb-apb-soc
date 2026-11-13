@@ -53,11 +53,8 @@ module tb_soc_system;
     logic btn_s2 = 1'b1;
     logic uart_rx = 1'b1;
 
-    wire       uart_tx;
     wire       spi_sck;
     wire       spi_mosi;
-    wire [7:0] spi_cs_n;
-    wire [5:0] led;
 
     // Master signals, forced onto the undriven cpu_* nets in soc_top.
     logic [31:0] haddr  = 32'h0;
@@ -66,9 +63,31 @@ module tb_soc_system;
     logic [2:0]  hsize  = SIZE_WORD;
     logic [31:0] hwdata = GARBAGE;
 
-    wire         hready = u_dut.cpu_hready;
-    wire [31:0]  hrdata = u_dut.cpu_hrdata;
-    wire         hresp  = u_dut.cpu_hresp;
+    // Copies of DUT outputs, updated at each negedge with a nonblocking assignment. A task
+    // resuming at negedge N reads the copy from negedge N-1, which holds the values the DUT
+    // presents at the posedge between them. Reading the live outputs at a posedge races
+    // with the DUT's registers in Verilator.
+    logic        hready = 1'b0;
+    logic [31:0] hrdata = '0;
+    logic        hresp  = 1'b0;
+    logic        uart_tx = 1'b1;
+    logic [7:0]  spi_cs_n = 8'hFF;
+    logic [5:0]  led = 6'h3F;
+    wire         uart_pin;
+    wire  [7:0]  spi_cs_pin;
+    wire  [5:0]  led_pin;
+    // Taken 1 ns after each negedge, so the copy is settled before any task resumes at the
+    // next negedge, in both simulators. A task resuming at negedge N then reads the
+    // interval that ends at the following posedge, as the original posedge tasks did.
+    always @(negedge clk) begin
+        #1;
+        hready   <= u_dut.cpu_hready;
+        hrdata   <= u_dut.cpu_hrdata;
+        hresp    <= u_dut.cpu_hresp;
+        uart_tx  <= uart_pin;
+        spi_cs_n <= spi_cs_pin;
+        led      <= led_pin;
+    end
 
     logic        prev_write = 1'b0;
     logic [31:0] prev_wdata = GARBAGE;
@@ -81,7 +100,15 @@ module tb_soc_system;
     integer failures = 0;
     integer group_checks = 0;
     integer group_failures = 0;
-    integer seed = 32'h50C5_1234;
+    // Own generator instead of $random(seed): the standard leaves its algorithm to each
+    // simulator, so Icarus and Verilator would otherwise run different stimulus.
+    logic [31:0] rng_state = 32'h50C5_1234;
+    function automatic [31:0] rnd();
+        rng_state = rng_state ^ (rng_state << 13);
+        rng_state = rng_state ^ (rng_state >> 17);
+        rng_state = rng_state ^ (rng_state << 5);
+        rnd = rng_state;
+    endfunction
 
     always #18.518 clk = ~clk;
 
@@ -89,26 +116,25 @@ module tb_soc_system;
     soc_top u_dut (
         .clk_27m  (clk),
         .rst_n    (rst_n),
+        .ext_haddr  (haddr),
+        .ext_htrans (htrans),
+        .ext_hwrite (hwrite),
+        .ext_hsize  (hsize),
+        .ext_hwdata (hwdata),
         .btn_s2   (btn_s2),
-        .uart_tx  (uart_tx),
+        .uart_tx  (uart_pin),
         .uart_rx  (uart_rx),
         .spi_sck  (spi_sck),
         .spi_mosi (spi_mosi),
         .spi_miso (~spi_mosi),
-        .spi_cs_n (spi_cs_n),
-        .led      (led)
+        .spi_cs_n (spi_cs_pin),
+        .led      (led_pin)
     );
 
-    initial begin
-        force u_dut.cpu_haddr  = haddr;
-        force u_dut.cpu_htrans = htrans;
-        force u_dut.cpu_hwrite = hwrite;
-        force u_dut.cpu_hsize  = hsize;
-        force u_dut.cpu_hwdata = hwdata;
-    end
-
-    always @(posedge clk) begin
-        if (hresp === 1'b1) saw_error = 1'b1;
+    // Records an ERROR response. Nonblocking, so a task that clears saw_error at the same
+    // negedge keeps its clear.
+    always @(negedge clk) begin
+        if (u_dut.cpu_hresp === 1'b1) saw_error <= 1'b1;
     end
 
     // SPI pin monitor. Modes 0 and 3 both sample on the rising edge of SCK.
@@ -155,8 +181,8 @@ module tb_soc_system;
         hwrite <= write;
         hsize  <= size;
         hwdata <= prev_write ? prev_wdata : GARBAGE;
-        @(posedge clk);
-        while (hready !== 1'b1) @(posedge clk);
+        @(negedge clk);
+        while (hready !== 1'b1) @(negedge clk);
         last_rdata = hrdata;
         prev_write = write;
         prev_wdata = wdata;
@@ -167,8 +193,8 @@ module tb_soc_system;
         htrans <= TRANS_IDLE;
         hwrite <= 1'b0;
         hwdata <= prev_write ? prev_wdata : GARBAGE;
-        @(posedge clk);
-        while (hready !== 1'b1) @(posedge clk);
+        @(negedge clk);
+        while (hready !== 1'b1) @(negedge clk);
         last_rdata = hrdata;
         prev_write = 1'b0;
         hwdata <= GARBAGE;
@@ -225,11 +251,11 @@ module tb_soc_system;
         write(GPIO_OUT, SIZE_WORD, 32'h0000_003F);
 
         btn_s2 <= 1'b0;
-        repeat (2) @(posedge clk);
+        repeat (2) @(negedge clk);
         read(GPIO_IN, val);
         check_eq(val & 32'h2, 32'h0, "button S2 pressed");
         btn_s2 <= 1'b1;
-        repeat (2) @(posedge clk);
+        repeat (2) @(negedge clk);
         read(GPIO_IN, val);
         check_eq(val & 32'h2, 32'h2, "button S2 released");
         end_group("GPIO pins");
@@ -244,17 +270,17 @@ module tb_soc_system;
         integer i;
         n = 0;
         while (uart_tx !== 1'b0 && n < POLL_LIMIT) begin
-            @(posedge clk);
+            @(negedge clk);
             n = n + 1;
         end
         check_eq({31'h0, uart_tx}, 32'h0, {what, ": start bit"});
-        repeat (period / 2) @(posedge clk);
+        repeat (period / 2) @(negedge clk);
         check_eq({31'h0, uart_tx}, 32'h0, {what, ": start bit holds to mid-bit"});
         for (i = 0; i < 8; i = i + 1) begin
-            repeat (period) @(posedge clk);
+            repeat (period) @(negedge clk);
             got[i] = uart_tx;
         end
-        repeat (period) @(posedge clk);
+        repeat (period) @(negedge clk);
         check_eq({31'h0, uart_tx}, 32'h1, {what, ": stop bit"});
         check_eq({24'h0, got}, {24'h0, want}, {what, ": data bits"});
     endtask
@@ -268,7 +294,7 @@ module tb_soc_system;
             read(UART_STATUS, val);
             n = n + 1;
         end
-        repeat (2 * 235) @(posedge clk);
+        repeat (2 * 235) @(negedge clk);
     endtask
 
     task automatic test_uart_tx;
@@ -294,7 +320,7 @@ module tb_soc_system;
 
         write(UART_CTRL, SIZE_WORD, 32'h0000_0002);
         write(UART_DATA, SIZE_WORD, 32'h0000_0055);
-        repeat (4 * UART_PERIOD) @(posedge clk);
+        repeat (4 * UART_PERIOD) @(negedge clk);
         check_eq({31'h0, uart_tx}, 32'h1, "TX stays idle when TX_EN is low");
         write(UART_CTRL, SIZE_WORD, 32'h0000_0003);
         end_group("UART transmit");
@@ -306,15 +332,15 @@ module tb_soc_system;
     task automatic send_uart(input [7:0] data, input logic stop);
         integer i;
         uart_rx <= 1'b0;
-        repeat (UART_PERIOD) @(posedge clk);
+        repeat (UART_PERIOD) @(negedge clk);
         for (i = 0; i < 8; i = i + 1) begin
             uart_rx <= data[i];
-            repeat (UART_PERIOD) @(posedge clk);
+            repeat (UART_PERIOD) @(negedge clk);
         end
         uart_rx <= stop;
-        repeat (UART_PERIOD) @(posedge clk);
+        repeat (UART_PERIOD) @(negedge clk);
         uart_rx <= 1'b1;
-        repeat (UART_PERIOD) @(posedge clk);
+        repeat (UART_PERIOD) @(negedge clk);
     endtask
 
     task automatic test_uart_rx;
@@ -336,7 +362,7 @@ module tb_soc_system;
         check_eq(val & 32'h9, 32'h0, "flags clear after the read");
 
         send_uart(8'h77, 1'b0);
-        repeat (2 * UART_PERIOD) @(posedge clk);
+        repeat (2 * UART_PERIOD) @(negedge clk);
         read(UART_STATUS, val);
         check_eq(val & 32'h1, 32'h0, "framing error drops the byte");
         end_group("UART receive");
@@ -359,7 +385,7 @@ module tb_soc_system;
     task automatic spi_transfer(input [31:0] cr, input logic lsb, input [7:0] data,
                                 input string what);
         write(SPI_CR, SIZE_WORD, cr);
-        repeat (4) @(posedge clk);
+        repeat (4) @(negedge clk);
         spi_mon_lsb  = lsb;
         spi_mon_bits = 0;
         spi_mon_data = 8'h00;
@@ -404,7 +430,7 @@ module tb_soc_system;
         hwrite <= write_next;
         hsize  <= SIZE_WORD;
         hwdata <= prev_wdata;
-        @(posedge clk);
+        @(negedge clk);
         check_eq({31'h0, hresp}, 32'h1, "first ERROR cycle: HRESP");
         check_eq({31'h0, hready}, 32'h0, "first ERROR cycle: HREADY");
     endtask
@@ -419,11 +445,11 @@ module tb_soc_system;
         htrans <= TRANS_IDLE;
         hwrite <= 1'b0;
         hwdata <= 32'hFFFF_FF2A;
-        @(posedge clk);
+        @(negedge clk);
         check_eq({31'h0, hready}, 32'h1, "second ERROR cycle: HREADY");
         prev_write = 1'b0;
         hwdata <= GARBAGE;
-        repeat (8) @(posedge clk);
+        repeat (8) @(negedge clk);
         check_read(GPIO_OUT, 32'h15, "cancelled APB write does not happen");
 
         // Cancelled read of a register with a side effect: RX must stay valid.
@@ -431,10 +457,10 @@ module tb_soc_system;
         error_then_waiting(UART_DATA, 1'b0);
         htrans <= TRANS_IDLE;
         hwrite <= 1'b0;
-        @(posedge clk);
+        @(negedge clk);
         prev_write = 1'b0;
         hwdata <= GARBAGE;
-        repeat (8) @(posedge clk);
+        repeat (8) @(negedge clk);
         read(UART_STATUS, val);
         check_eq(val & 32'h1, 32'h1, "cancelled APB read does not clear RX_VALID");
         check_read(UART_DATA, 32'h6D, "RX byte survives the cancelled read");
@@ -443,16 +469,16 @@ module tb_soc_system;
         write(GPIO_OUT, SIZE_WORD, 32'h0000_0015);
         error_then_waiting(GPIO_OUT, 1'b1);
         hwdata <= 32'hFFFF_FF00;
-        @(posedge clk);
+        @(negedge clk);
         check_eq({31'h0, hready}, 32'h1, "held write: second ERROR cycle");
         htrans <= TRANS_IDLE;
         hwrite <= 1'b0;
         hwdata <= 32'h0000_002A;
-        @(posedge clk);
-        while (hready !== 1'b1) @(posedge clk);
+        @(negedge clk);
+        while (hready !== 1'b1) @(negedge clk);
         prev_write = 1'b0;
         hwdata <= GARBAGE;
-        repeat (8) @(posedge clk);
+        repeat (8) @(negedge clk);
         check_read(GPIO_OUT, 32'h2A, "held APB write uses its own data");
         end_group("APB behind default ERROR");
     endtask
@@ -526,12 +552,12 @@ module tb_soc_system;
         // Word write: ERROR for exactly two cycles, then the bus is free.
         xfer(ROM_WORD, 1'b1, SIZE_WORD, 32'hFFFF_FFFF);
         go_idle_after_write;
-        @(posedge clk);
+        @(negedge clk);
         check_response(1'b1, 1'b0, "ROM write: first ERROR cycle");
-        @(posedge clk);
+        @(negedge clk);
         check_response(1'b1, 1'b1, "ROM write: second ERROR cycle");
         hwdata <= GARBAGE;
-        @(posedge clk);
+        @(negedge clk);
         check_response(1'b0, 1'b1, "ROM write: OKAY after ERROR");
         check_eq(u_dut.rom_mem[ROM_WORD >> 2], PATTERN, "ROM write: contents unchanged");
 
@@ -556,13 +582,13 @@ module tb_soc_system;
         hwrite <= 1'b0;
         hwdata <= prev_wdata;
         prev_write = 1'b0;
-        @(posedge clk);
+        @(negedge clk);
         check_response(1'b1, 1'b0, "Held read: first ERROR cycle");
-        @(posedge clk);
+        @(negedge clk);
         check_response(1'b1, 1'b1, "Held read: second ERROR cycle");
         htrans <= TRANS_IDLE;
         hwdata <= GARBAGE;
-        @(posedge clk);
+        @(negedge clk);
         check_response(1'b0, 1'b1, "Held read answers OKAY");
         check_eq(hrdata, PATTERN, "Held read data");
 
@@ -570,17 +596,17 @@ module tb_soc_system;
         xfer(ROM_WORD, 1'b1, SIZE_WORD, 32'hFFFF_FFFF);
         haddr <= ROM_WORD + 32'h4;
         hwdata <= prev_wdata;
-        @(posedge clk);
+        @(negedge clk);
         check_response(1'b1, 1'b0, "Two writes: first ERROR, cycle 1");
-        @(posedge clk);
+        @(negedge clk);
         check_response(1'b1, 1'b1, "Two writes: first ERROR, cycle 2");
         go_idle_after_write;
-        @(posedge clk);
+        @(negedge clk);
         check_response(1'b1, 1'b0, "Two writes: second ERROR, cycle 1");
-        @(posedge clk);
+        @(negedge clk);
         check_response(1'b1, 1'b1, "Two writes: second ERROR, cycle 2");
         hwdata <= GARBAGE;
-        @(posedge clk);
+        @(negedge clk);
         check_response(1'b0, 1'b1, "Two writes: OKAY afterwards");
 
         // IDLE is not a transfer, so HWRITE on a ROM address means nothing.
@@ -588,21 +614,21 @@ module tb_soc_system;
         htrans <= TRANS_IDLE;
         hwrite <= 1'b1;
         repeat (3) begin
-            @(posedge clk);
+            @(negedge clk);
             check_response(1'b0, 1'b1, "IDLE with HWRITE on the ROM answers OKAY");
         end
         hwrite <= 1'b0;
-        @(posedge clk);
+        @(negedge clk);
 
         // A write that waits behind the default slave's ERROR and is then cancelled was
         // never accepted, so it must not start a ROM ERROR. HADDR stays on the ROM.
         error_then_waiting(ROM_WORD, 1'b1);
         go_idle_after_write;
-        @(posedge clk);
+        @(negedge clk);
         check_response(1'b1, 1'b1, "Cancelled write: second default ERROR cycle");
         hwdata <= GARBAGE;
         repeat (3) begin
-            @(posedge clk);
+            @(negedge clk);
             check_response(1'b0, 1'b1, "Cancelled ROM write answers nothing");
         end
 
@@ -611,12 +637,12 @@ module tb_soc_system;
         xfer(ROM_WORD, 1'b1, SIZE_WORD, 32'hFFFF_FFFF);
         check_eq({31'h0, hresp}, 32'h0, "Write behind APB read: APB answers OKAY");
         go_idle_after_write;
-        @(posedge clk);
+        @(negedge clk);
         check_response(1'b1, 1'b0, "Write behind APB read: first ERROR cycle");
-        @(posedge clk);
+        @(negedge clk);
         check_response(1'b1, 1'b1, "Write behind APB read: second ERROR cycle");
         hwdata <= GARBAGE;
-        @(posedge clk);
+        @(negedge clk);
         check_eq(u_dut.rom_mem[ROM_WORD >> 2], PATTERN, "ROM contents unchanged at the end");
         end_group("ROM write");
     endtask
@@ -751,8 +777,8 @@ module tb_soc_system;
                                  output logic err);
         logic [31:0] r;
         logic [1:0]  offset;
-        r      = $random(seed);
-        wdata  = $random(seed);
+        r      = rnd();
+        wdata  = rnd();
         valid  = (r[3:0] != 4'd15);
         wr     = r[4];
         err    = 1'b0;
@@ -795,7 +821,7 @@ module tb_soc_system;
         integer i;
         for (i = 0; i < 16; i = i + 1) begin
             write(sram_addr(i[3:0]), SIZE_WORD, 32'h0);
-            rom_model[i] = $random(seed);
+            rom_model[i] = rnd();
             u_dut.rom_mem[rom_addr(i[3:0]) >> 2] = rom_model[i];
         end
         for (i = 0; i < 64; i = i + 1) sram_model[i] = 8'h00;
@@ -860,19 +886,22 @@ module tb_soc_system;
             htrans <= n_valid ? TRANS_NONSEQ : TRANS_IDLE;
             hwrite <= n_write;
             hsize  <= n_size;
-            hwdata <= (p_valid && p_write) ? p_wdata : $random(seed);
+            // Written as if/else: rnd() must run only when it is used. A ?: may
+            // evaluate both branches in some simulators, which would advance the seed twice.
+            if (p_valid && p_write) hwdata <= p_wdata;
+            else                    hwdata <= rnd();
 
             done = 1'b0;
             cancelled = 1'b0;
             err_seen = 1'b0;
             while (!done) begin
-                @(posedge clk);
+                @(negedge clk);
                 if (hready === 1'b1) begin
                     done = 1'b1;
                 end else if (hresp === 1'b1) begin
                     // First ERROR cycle: the waiting transfer may be cancelled.
                     err_seen = 1'b1;
-                    coin = $random(seed);
+                    coin = rnd();
                     if (coin[0] && n_valid) begin
                         htrans <= TRANS_IDLE;
                         hwrite <= 1'b0;
@@ -897,14 +926,14 @@ module tb_soc_system;
         done = 1'b0;
         err_seen = 1'b0;
         while (!done) begin
-            @(posedge clk);
+            @(negedge clk);
             if (hready === 1'b1) done = 1'b1;
             else if (hresp === 1'b1) err_seen = 1'b1;
         end
         finish_pending(p_valid, p_write, p_addr, p_size, p_wdata, p_err, err_seen);
         prev_write = 1'b0;
         hwdata <= GARBAGE;
-        repeat (4) @(posedge clk);
+        repeat (4) @(negedge clk);
 
         // The pins must agree with the model after all the traffic.
         check_eq({26'h0, led}, {26'h0, m_gpio_out}, "LEDs match the model");
@@ -916,9 +945,9 @@ module tb_soc_system;
         $dumpfile("tb_soc_system.vcd");
         $dumpvars(0, tb_soc_system);
 
-        repeat (5) @(posedge clk);
+        repeat (5) @(negedge clk);
         rst_n <= 1'b1;
-        repeat (2) @(posedge clk);
+        repeat (2) @(negedge clk);
 
         test_reset_values;
         test_gpio_pins;

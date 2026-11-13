@@ -31,6 +31,11 @@ module tb_soc_top;
     ) u_dut (
         .clk_27m  (clk_27m),
         .rst_n    (rst_n),
+        .ext_haddr  (32'h0),
+        .ext_htrans (2'b00),
+        .ext_hwrite (1'b0),
+        .ext_hsize  (3'b000),
+        .ext_hwdata (32'h0),
         .btn_s2   (btn_s2),
         .uart_tx  (uart_tx),
         .uart_rx  (uart_rx),
