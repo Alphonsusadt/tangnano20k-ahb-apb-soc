@@ -14,12 +14,12 @@ module apb_gpio (
     input  wire [31:0] paddr,
     input  wire [31:0] pwdata,
     input  wire [3:0]  pstrb,
-    output reg  [31:0] prdata,
+    output logic  [31:0] prdata,
     output wire        pready,
     output wire        pslverr,
 
     // External GPIO Pins
-    output reg  [5:0]  gpio_out, // Tang Nano 20K Onboard LEDs (active low)
+    output logic  [5:0]  gpio_out, // Tang Nano 20K Onboard LEDs (active low)
     input  wire [1:0]  gpio_in   // Tang Nano 20K Pushbuttons S1 & S2
 );
 
@@ -28,9 +28,9 @@ module apb_gpio (
     wire reg_valid = (paddr[11:4] == 8'h00) && (paddr[3:2] != 2'b11);
     assign pslverr = psel && penable && !reg_valid;
 
-    reg [5:0] dir_reg;
+    logic [5:0] dir_reg;
 
-    always @(*) begin
+    always_comb begin
         case (paddr[3:2])
             2'b00: prdata = {26'h0, gpio_out};
             2'b01: prdata = {30'h0, gpio_in};
@@ -42,7 +42,7 @@ module apb_gpio (
     // Both registers live in byte lane 0, so only PSTRB[0] can change them.
     wire apb_write = psel && penable && pwrite && reg_valid;
 
-    always @(posedge pclk or negedge preset_n) begin
+    always_ff @(posedge pclk or negedge preset_n) begin
         if (!preset_n) begin
             gpio_out <= 6'b111111; // LEDs OFF (active-low)
             dir_reg  <= 6'b111111;

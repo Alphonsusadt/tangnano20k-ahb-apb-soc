@@ -49,6 +49,7 @@ add_file $ibex/vendor/lowrisc_ip/ip/prim/rtl/prim_count.sv
 add_file $ibex/vendor/lowrisc_ip/ip/prim_generic/rtl/prim_buf.sv
 add_file $ibex/vendor/lowrisc_ip/ip/prim_generic/rtl/prim_flop.sv
 
+add_file ../../rtl/soc_pkg.sv
 add_file ../../rtl/core/prim_clock_gating.sv
 add_file ../../rtl/core/ibex_ahb_cpu.sv
 add_file ../../rtl/fpga/fpga_top.sv
@@ -59,9 +60,9 @@ add_file ../../rtl/interconnect/obi_to_ahb_adapter.sv
 add_file ../../rtl/interconnect/ahb_interconnect.sv
 add_file ../../rtl/interconnect/ahb_to_apb_bridge.sv
 add_file ../../rtl/memory/ahb_sram.sv
-add_file ../../rtl/peripherals/apb_uart.v
-add_file ../../rtl/peripherals/apb_spi.v
-add_file ../../rtl/peripherals/apb_gpio.v
+add_file ../../rtl/peripherals/apb_uart.sv
+add_file ../../rtl/peripherals/apb_spi.sv
+add_file ../../rtl/peripherals/apb_gpio.sv
 add_file ../tangnano20k.cst
 add_file ../tangnano20k.sdc
 

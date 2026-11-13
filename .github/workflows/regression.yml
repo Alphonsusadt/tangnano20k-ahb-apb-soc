@@ -44,6 +44,14 @@ jobs:
       - name: Add Verilator to PATH
         run: echo /opt/verilator/bin >> "$GITHUB_PATH"
 
+      # Any lint warning fails the build. Intentional exceptions are listed in dv/lint_waiver.vlt.
+      - name: Lint RTL
+        shell: bash
+        run: |
+          verilator --lint-only -Wall -Wno-DECLFILENAME --top-module soc_top dv/lint_waiver.vlt \
+            rtl/soc_pkg.sv rtl/soc_top.sv rtl/interconnect/*.sv rtl/memory/*.sv rtl/peripherals/*.sv \
+            rtl/fpga/ahb_selftest_master.sv
+
       # A skipped test would look like a pass, so CI treats it as a failure.
       - name: Run regression
         shell: bash

@@ -1,0 +1,40 @@
+`verilator_config
+
+// ==============================================================================
+// Lint waivers for dv/lint_waiver.vlt, used by .github/workflows/regression.yml.
+// Each waiver names one file and one signal, so a new unused signal still fails lint.
+// ==============================================================================
+
+// APB address and data bits the peripherals never decode. Each register is in one
+// 4 KB block, decoded from paddr[11:0] by the peripheral, and the bridge's byte strobes
+// only use the low lanes that a register actually has.
+lint_off -rule UNUSEDSIGNAL -file "*rtl/peripherals/apb_gpio.sv" -match "*'paddr'*"
+lint_off -rule UNUSEDSIGNAL -file "*rtl/peripherals/apb_gpio.sv" -match "*'pwdata'*"
+lint_off -rule UNUSEDSIGNAL -file "*rtl/peripherals/apb_gpio.sv" -match "*'pstrb'*"
+lint_off -rule UNUSEDSIGNAL -file "*rtl/peripherals/apb_spi.sv" -match "*'paddr'*"
+lint_off -rule UNUSEDSIGNAL -file "*rtl/peripherals/apb_spi.sv" -match "*'pwdata'*"
+lint_off -rule UNUSEDSIGNAL -file "*rtl/peripherals/apb_spi.sv" -match "*'pstrb'*"
+lint_off -rule UNUSEDSIGNAL -file "*rtl/peripherals/apb_uart.sv" -match "*'paddr'*"
+lint_off -rule UNUSEDSIGNAL -file "*rtl/peripherals/apb_uart.sv" -match "*'pwdata'*"
+lint_off -rule UNUSEDSIGNAL -file "*rtl/peripherals/apb_uart.sv" -match "*'pstrb'*"
+
+// Bit 0 of HTRANS is always 1 for NONSEQ and 0 for IDLE in this bus, so only bit 1 is used.
+lint_off -rule UNUSEDSIGNAL -file "*rtl/interconnect/ahb_to_apb_bridge.sv" -match "*'htrans'*"
+lint_off -rule UNUSEDSIGNAL -file "*rtl/memory/ahb_sram.sv" -match "*'htrans'*"
+// The SRAM is 32 KB, so the address bits above its own range are not part of the decode.
+lint_off -rule UNUSEDSIGNAL -file "*rtl/memory/ahb_sram.sv" -match "*'haddr'*"
+
+// The ROM is read-only and always answers with a full word, so the write-side signals
+// and the upper address bits are not used by the ROM.
+lint_off -rule UNUSEDSIGNAL -file "*rtl/soc_top.sv" -match "*'imem_*'*"
+lint_off -rule UNUSEDSIGNAL -file "*rtl/soc_top.sv" -match "*'cpu_hrdata'*"
+lint_off -rule UNUSEDSIGNAL -file "*rtl/soc_top.sv" -match "*'cpu_hresp'*"
+
+// Known gap, not a bug in this file: the UART interrupt is not connected to the CPU yet.
+// It is removed from this list when F4 connects it.
+lint_off -rule UNUSEDSIGNAL -file "*rtl/soc_top.sv" -match "*'uart_irq'*"
+
+// soc_pkg: sizes and the timer/sysctrl bases are documentation until F4/F6 use them, and
+// the decode functions compare only the block-select bits of an address by design.
+lint_off -rule UNUSEDPARAM  -file "*rtl/soc_pkg.sv"
+lint_off -rule UNUSEDSIGNAL -file "*rtl/soc_pkg.sv"

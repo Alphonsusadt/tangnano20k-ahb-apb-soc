@@ -51,10 +51,10 @@ module ahb_sram #(
                            (hsize == 3'b010) ? 4'b1111 : 4'b0000;
 
     // Address phase state, used by the following data phase.
-    reg [3:0]             wr_strb_q;
-    reg [INDEX_WIDTH-1:0] wr_word_q;
+    logic [3:0]             wr_strb_q;
+    logic [INDEX_WIDTH-1:0] wr_word_q;
 
-    always @(posedge hclk or negedge hreset_n) begin
+    always_ff @(posedge hclk or negedge hreset_n) begin
         if (!hreset_n) begin
             wr_strb_q <= 4'b0000;
             wr_word_q <= {INDEX_WIDTH{1'b0}};
@@ -67,10 +67,10 @@ module ahb_sram #(
     // Read-after-write forwarding. The result is used only in the read's data
     // phase, which is always the next cycle because this slave never stalls.
     wire       read_en = access && !hwrite;
-    reg [3:0]  fwd_strb_q;
-    reg [31:0] fwd_data_q;
+    logic [3:0]  fwd_strb_q;
+    logic [31:0] fwd_data_q;
 
-    always @(posedge hclk or negedge hreset_n) begin
+    always_ff @(posedge hclk or negedge hreset_n) begin
         if (!hreset_n) begin
             fwd_strb_q <= 4'b0000;
             fwd_data_q <= 32'h0;
@@ -84,10 +84,10 @@ module ahb_sram #(
     genvar lane;
     generate
         for (lane = 0; lane < 4; lane = lane + 1) begin : g_lane
-            reg [7:0] mem [0:DEPTH-1];
-            reg [7:0] rdata_q;
+            logic [7:0] mem [0:DEPTH-1];
+            logic [7:0] rdata_q;
 
-            always @(posedge hclk) begin
+            always_ff @(posedge hclk) begin
                 if (wr_strb_q[lane]) begin
                     mem[wr_word_q] <= hwdata[8*lane +: 8];
                 end

@@ -1,10 +1,11 @@
-`timescale 1ns/1ps
 // ==============================================================================
 // Module: ahb_to_apb_bridge
 // Description: AHB-Lite to APB4 Bridge with integrated address decoding
 // ==============================================================================
 
-module ahb_to_apb_bridge (
+module ahb_to_apb_bridge
+    import soc_pkg::*;
+(
     input  wire        hclk,
     input  wire        hreset_n,
 
@@ -16,17 +17,17 @@ module ahb_to_apb_bridge (
     input  wire [2:0]  hsize,
     input  wire [31:0] hwdata,
     input  wire        hready_in,  // Global bus HREADY from the interconnect
-    output reg  [31:0] hrdata,
-    output reg         hready,
+    output logic  [31:0] hrdata,
+    output logic         hready,
     output wire        hresp,
 
     // APB4 Master Interface to Peripherals
-    output reg  [31:0] paddr,
-    output reg  [31:0] pwdata,
-    output reg         pwrite,
-    output reg  [2:0]  pprot,
-    output reg  [3:0]  pstrb,
-    output reg         penable,
+    output logic  [31:0] paddr,
+    output logic  [31:0] pwdata,
+    output logic         pwrite,
+    output logic  [2:0]  pprot,
+    output logic  [3:0]  pstrb,
+    output logic         penable,
 
     // Peripheral Selects
     output wire        psel_uart,  // 0x4000_0000 - 0x4000_0FFF
@@ -52,10 +53,10 @@ module ahb_to_apb_bridge (
         ST_IDLE, ST_DATA, ST_SETUP, ST_ACCESS, ST_RESPONSE, ST_ERROR1, ST_ERROR2
     } state_t;
     state_t state;
-    reg invalid_transfer;
-    wire sel_uart_raw = (paddr[31:12] == 20'h40000);
-    wire sel_spi_raw  = (paddr[31:12] == 20'h40001);
-    wire sel_gpio_raw = (paddr[31:12] == 20'h40002);
+    logic invalid_transfer;
+    wire sel_uart_raw = in_apb_block(paddr, UART_BASE);
+    wire sel_spi_raw  = in_apb_block(paddr, SPI_BASE);
+    wire sel_gpio_raw = in_apb_block(paddr, GPIO_BASE);
     wire apb_active = hreset_n && ((state == ST_SETUP) || (state == ST_ACCESS));
     assign psel_uart = apb_active && sel_uart_raw;
     assign psel_spi  = apb_active && sel_spi_raw;
@@ -67,13 +68,13 @@ module ahb_to_apb_bridge (
     wire selected_pslverr = sel_uart_raw ? pslverr_uart :
                             sel_spi_raw ? pslverr_spi : pslverr_gpio;
     assign hresp = hreset_n && ((state == ST_ERROR1) || (state == ST_ERROR2));
-    always @* begin
+    always_comb begin
         hready = !hreset_n || (state == ST_IDLE) ||
                  (state == ST_RESPONSE) || (state == ST_ERROR2);
         penable = hreset_n && (state == ST_ACCESS);
     end
 
-    always @(posedge hclk or negedge hreset_n) begin
+    always_ff @(posedge hclk or negedge hreset_n) begin
         if (!hreset_n) begin
             state <= ST_IDLE;
             paddr <= 0;
@@ -94,9 +95,9 @@ module ahb_to_apb_bridge (
                         pwrite <= hwrite;
                         pprot <= 0; // This interface has no HPROT input.
                         invalid_transfer <=
-                            !((haddr[31:12] == 20'h40000) ||
-                              (haddr[31:12] == 20'h40001) ||
-                              (haddr[31:12] == 20'h40002)) ||
+                            !(in_apb_block(haddr, UART_BASE) ||
+                              in_apb_block(haddr, SPI_BASE) ||
+                              in_apb_block(haddr, GPIO_BASE)) ||
                             (hsize > 2) ||
                             ((hsize == 1) && haddr[0]) ||
                             ((hsize == 2) && (haddr[1:0] != 0));

@@ -51,23 +51,23 @@ module obi_to_ahb_adapter (
     localparam [2:0] SIZE_BYTE = 3'b000, SIZE_HALF = 3'b001, SIZE_WORD = 3'b010;
 
     // Registered state
-    reg        addr_stalled_q; // The last address phase was not accepted
-    reg        owner_data_q;   // Owner of that address phase
-    reg        dp_valid_q;     // A request is in its data phase
-    reg        dp_data_q;      // That request belongs to the data port
-    reg        dp_local_err_q; // That request was refused here, with no AHB transfer
-    reg [31:0] hwdata_q;
+    logic        addr_stalled_q; // The last address phase was not accepted
+    logic        owner_data_q;   // Owner of that address phase
+    logic        dp_valid_q;     // A request is in its data phase
+    logic        dp_data_q;      // That request belongs to the data port
+    logic        dp_local_err_q; // That request was refused here, with no AHB transfer
+    logic [31:0] hwdata_q;
 
     // Arbitration
     wire owner_data = addr_stalled_q ? owner_data_q : data_req_i;
     wire owner_req  = owner_data ? data_req_i : instr_req_i;
 
     // Write byte enables
-    reg       write_legal;
-    reg [1:0] write_offset;
-    reg [2:0] write_size;
+    logic       write_legal;
+    logic [1:0] write_offset;
+    logic [2:0] write_size;
 
-    always @(*) begin
+    always_comb begin
         write_legal  = 1'b1;
         write_offset = 2'd0;
         write_size   = SIZE_WORD;
@@ -112,7 +112,7 @@ module obi_to_ahb_adapter (
     assign data_rdata_o   = hrdata;
     assign data_err_o     = dp_err;
 
-    always @(posedge hclk or negedge hreset_n) begin
+    always_ff @(posedge hclk or negedge hreset_n) begin
         if (!hreset_n) begin
             addr_stalled_q <= 1'b0;
             owner_data_q   <= 1'b0;

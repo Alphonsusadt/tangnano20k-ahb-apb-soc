@@ -15,15 +15,15 @@ module apb_spi (
     input  wire [31:0] paddr,
     input  wire [31:0] pwdata,
     input  wire [3:0]  pstrb,
-    output reg  [31:0] prdata,
+    output logic  [31:0] prdata,
     output wire        pready,
     output wire        pslverr,
 
     // External SPI Pins
-    output reg         spi_sck,
-    output reg         spi_mosi,
+    output logic         spi_sck,
+    output logic         spi_mosi,
     input  wire        spi_miso,
-    output reg  [7:0]  spi_cs_n
+    output logic  [7:0]  spi_cs_n
 );
 
     assign pready  = 1'b1; // Single-cycle APB response
@@ -31,19 +31,15 @@ module apb_spi (
     wire reg_valid = (paddr[11:5] == 7'h00) && (paddr[4:2] <= 3'b100);
     assign pslverr = psel && penable && !reg_valid;
 
-    // Register Offsets
-    localparam REG_CR     = 4'h0; // 0x00: Control Register
-    localparam REG_SR     = 4'h4; // 0x04: Status Register
-    localparam REG_TXDATA = 4'h8; // 0x08: Transmit Data
-    localparam REG_RXDATA = 4'hC; // 0x0C: Receive Data
-    localparam REG_CS     = 4'h0; // 0x10 (paddr[4]=1, paddr[3:0]=0x0)
+    // Register offsets are decoded from paddr[4:2] below: 0x00 CR, 0x04 SR, 0x08 TXDATA,
+    // 0x0C RXDATA, 0x10 CS. See docs/memory_map.md.
 
     // Registers
-    reg [12:0] cr_reg;      // [0]=EN, [1]=CPHA, [2]=CPOL, [3]=LSB_FIRST, [11:4]=CLK_DIV, [12]=AUTO_CS
-    reg [7:0]  tx_reg;
-    reg [7:0]  rx_reg;
-    reg [7:0]  cs_reg;
-    reg        busy;
+    logic [12:0] cr_reg;      // [0]=EN, [1]=CPHA, [2]=CPOL, [3]=LSB_FIRST, [11:4]=CLK_DIV, [12]=AUTO_CS
+    logic [7:0]  tx_reg;
+    logic [7:0]  rx_reg;
+    logic [7:0]  cs_reg;
+    logic        busy;
 
     wire spi_en     = cr_reg[0];
     wire spi_cpha   = cr_reg[1];
@@ -53,12 +49,12 @@ module apb_spi (
     wire auto_cs    = cr_reg[12];
 
     // SPI Engine State Machine
-    reg [7:0]  clk_cnt;
-    reg [3:0]  edge_cnt;    // SCK edge index in a byte: 0..15, even = leading edge
-    reg [7:0]  tx_shift;
-    reg [7:0]  rx_shift;
-    reg        sck_internal;
-    reg        transfer_start;
+    logic [7:0]  clk_cnt;
+    logic [3:0]  edge_cnt;    // SCK edge index in a byte: 0..15, even = leading edge
+    logic [7:0]  tx_shift;
+    logic [7:0]  rx_shift;
+    logic        sck_internal;
+    logic        transfer_start;
 
     // CPHA=0 samples on leading edges (even index), CPHA=1 on trailing (odd).
     wire sample_edge = edge_cnt[0] == spi_cpha;
@@ -76,7 +72,7 @@ module apb_spi (
     wire [31:0] sr_val = {27'h0, sr_rx_full, sr_rx_empty, sr_tx_full, sr_tx_empty, sr_busy};
 
     // APB Register Read
-    always @(*) begin
+    always_comb begin
         case (paddr[4:2])
             3'b000: prdata = {19'h0, cr_reg};
             3'b001: prdata = sr_val;
@@ -90,7 +86,7 @@ module apb_spi (
     // APB Register Write
     wire apb_write_pulse = psel && penable && pwrite && reg_valid;
 
-    always @(posedge pclk or negedge preset_n) begin
+    always_ff @(posedge pclk or negedge preset_n) begin
         if (!preset_n) begin
             cr_reg         <= 13'h0000;
             tx_reg         <= 8'h00;
@@ -119,7 +115,7 @@ module apb_spi (
     end
 
     // Chip Select Output
-    always @(*) begin
+    always_comb begin
         if (auto_cs && busy) begin
             spi_cs_n = 8'hFE; // Assert CS0 active low
         end else begin
@@ -136,7 +132,7 @@ module apb_spi (
 
     spi_state_t spi_state;
 
-    always @(posedge pclk or negedge preset_n) begin
+    always_ff @(posedge pclk or negedge preset_n) begin
         if (!preset_n) begin
             spi_state    <= IDLE;
             busy         <= 1'b0;

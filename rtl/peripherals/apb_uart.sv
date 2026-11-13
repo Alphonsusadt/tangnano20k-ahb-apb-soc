@@ -16,12 +16,12 @@ module apb_uart #(
     input  wire [31:0] paddr,
     input  wire [31:0] pwdata,
     input  wire [3:0]  pstrb,
-    output reg  [31:0] prdata,
+    output logic  [31:0] prdata,
     output wire        pready,
     output wire        pslverr,
 
     // Serial Pins
-    output reg         uart_tx,
+    output logic         uart_tx,
     input  wire        uart_rx,
     output wire        uart_irq
 );
@@ -32,14 +32,14 @@ module apb_uart #(
     assign pslverr = psel && penable && !reg_valid;
 
     // Registers
-    reg [7:0]  tx_data_reg;
-    reg [7:0]  rx_data_reg;
-    reg [3:0]  ctrl_reg;       // [0]=tx_en, [1]=rx_en, [2]=tx_irq_en, [3]=rx_irq_en
-    reg [15:0] baud_div_reg;
+    logic [7:0]  tx_data_reg;
+    logic [7:0]  rx_data_reg;
+    logic [3:0]  ctrl_reg;       // [0]=tx_en, [1]=rx_en, [2]=tx_irq_en, [3]=rx_irq_en
+    logic [15:0] baud_div_reg;
 
-    reg        rx_valid;
-    reg        rx_overflow;
-    reg        tx_busy;
+    logic        rx_valid;
+    logic        rx_overflow;
+    logic        tx_busy;
 
     wire tx_en     = ctrl_reg[0];
     wire rx_en     = ctrl_reg[1];
@@ -49,7 +49,7 @@ module apb_uart #(
     assign uart_irq = (ctrl_reg[2] && tx_empty) || (ctrl_reg[3] && rx_valid);
 
     // APB Read
-    always @(*) begin
+    always_comb begin
         case (paddr[3:2])
             2'b00: prdata = {24'h0, rx_data_reg};
             2'b01: prdata = {28'h0, rx_overflow, tx_full, tx_empty, rx_valid};
@@ -61,13 +61,13 @@ module apb_uart #(
     // APB Write
     wire apb_write = psel && penable && pwrite && reg_valid;
     wire apb_read  = psel && penable && !pwrite && reg_valid;
-    reg  tx_start_req;
+    logic  tx_start_req;
 
     // Receiver handshake: rx_shift holds the completed byte while rx_done is high.
-    reg        rx_done;
-    reg  [7:0] rx_shift;
+    logic        rx_done;
+    logic  [7:0] rx_shift;
 
-    always @(posedge pclk or negedge preset_n) begin
+    always_ff @(posedge pclk or negedge preset_n) begin
         if (!preset_n) begin
             ctrl_reg     <= 4'b0011; // TX and RX enabled by default
             baud_div_reg <= DEFAULT_BAUD_DIV;
@@ -104,9 +104,8 @@ module apb_uart #(
                             tx_start_req <= 1'b1;
                         end
                     end
-                    2'b01: begin
-                        // Write 1 to clear status bits if desired
-                    end
+                    // UART_STATUS is read-only: a write is accepted on the bus and ignored.
+                    2'b01: ;
                     2'b10: if (pstrb[0]) ctrl_reg <= pwdata[3:0];
                     2'b11: begin
                         if (pstrb[0]) baud_div_reg[7:0]  <= pwdata[7:0];
@@ -120,11 +119,11 @@ module apb_uart #(
     // --------------------------------------------------------------------------
     // UART Transmitter
     // --------------------------------------------------------------------------
-    reg [15:0] tx_clk_cnt;
-    reg [3:0]  tx_bit_cnt;
-    reg [9:0]  tx_shift; // {1'b1 (stop), data[7:0], 1'b0 (start)}
+    logic [15:0] tx_clk_cnt;
+    logic [3:0]  tx_bit_cnt;
+    logic [9:0]  tx_shift; // {1'b1 (stop), data[7:0], 1'b0 (start)}
 
-    always @(posedge pclk or negedge preset_n) begin
+    always_ff @(posedge pclk or negedge preset_n) begin
         if (!preset_n) begin
             uart_tx    <= 1'b1;
             tx_busy    <= 1'b0;
@@ -159,12 +158,12 @@ module apb_uart #(
     // --------------------------------------------------------------------------
     // UART Receiver (Synchronizer + 8-N-1 receiver)
     // --------------------------------------------------------------------------
-    reg [1:0]  rx_sync;
-    reg [15:0] rx_clk_cnt;
-    reg [3:0]  rx_bit_cnt;     // 9 = start check, 8..1 = data bits, 0 = stop bit
-    reg        rx_busy;
+    logic [1:0]  rx_sync;
+    logic [15:0] rx_clk_cnt;
+    logic [3:0]  rx_bit_cnt;     // 9 = start check, 8..1 = data bits, 0 = stop bit
+    logic        rx_busy;
 
-    always @(posedge pclk or negedge preset_n) begin
+    always_ff @(posedge pclk or negedge preset_n) begin
         if (!preset_n) begin
             rx_sync <= 2'b11;
         end else begin
@@ -174,7 +173,7 @@ module apb_uart #(
 
     wire rx_in = rx_sync[1];
 
-    always @(posedge pclk or negedge preset_n) begin
+    always_ff @(posedge pclk or negedge preset_n) begin
         if (!preset_n) begin
             rx_busy     <= 1'b0;
             rx_clk_cnt  <= 16'd0;

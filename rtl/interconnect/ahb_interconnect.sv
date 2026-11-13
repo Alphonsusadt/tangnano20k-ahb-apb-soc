@@ -5,7 +5,9 @@
 //              ERROR, so a bad address raises a bus fault instead of passing as OKAY.
 // ==============================================================================
 
-module ahb_interconnect (
+module ahb_interconnect
+    import soc_pkg::*;
+(
     input  wire        hclk,
     input  wire        hreset_n,
 
@@ -14,12 +16,16 @@ module ahb_interconnect (
     input  wire [1:0]  s_htrans,
     input  wire        s_hwrite,
     input  wire [2:0]  s_hsize,
+    // The CPU only issues single transfers and no protection info is used, so these are
+    // accepted for the AHB-Lite port shape and deliberately unused.
+    // verilator lint_off UNUSEDSIGNAL
     input  wire [2:0]  s_hburst,
     input  wire [3:0]  s_hprot,
+    // verilator lint_on UNUSEDSIGNAL
     input  wire [31:0] s_hwdata,
-    output reg  [31:0] s_hrdata,
-    output reg         s_hready,
-    output reg         s_hresp,
+    output logic  [31:0] s_hrdata,
+    output logic         s_hready,
+    output logic         s_hresp,
 
     // AHB Slave 0: Instruction ROM (0x0000_0000 - 0x0000_7FFF)
     output wire        m0_hsel,
@@ -56,9 +62,9 @@ module ahb_interconnect (
 );
 
     // Address phase decoding
-    wire sel_imem = (s_haddr[31:15] == 17'h00000); // 0x0000_0000 - 0x0000_7FFF
-    wire sel_dmem = (s_haddr[31:15] == 17'h04000); // 0x2000_0000 - 0x2000_7FFF
-    wire sel_apb  = (s_haddr[31:28] == 4'h4);      // 0x4xxx_xxxx
+    wire sel_imem = in_rom(s_haddr);
+    wire sel_dmem = in_sram(s_haddr);
+    wire sel_apb  = in_apb(s_haddr);
 
     assign m0_hsel = sel_imem;
     assign m1_hsel = sel_dmem;
@@ -84,8 +90,8 @@ module ahb_interconnect (
     assign m2_hwdata = s_hwdata;
 
     // Registered slave select for data phase multiplexing
-    reg [2:0] sel_q;
-    always @(posedge hclk or negedge hreset_n) begin
+    logic [2:0] sel_q;
+    always_ff @(posedge hclk or negedge hreset_n) begin
         if (!hreset_n) begin
             sel_q <= 3'b000;
         end else if (s_hready) begin
@@ -100,9 +106,9 @@ module ahb_interconnect (
     // response beyond a zero-wait OKAY, so they never start ERROR.
     wire unmapped = s_htrans[1] && !(sel_imem || sel_dmem || sel_apb);
 
-    reg err_first_q;
-    reg err_second_q;
-    always @(posedge hclk or negedge hreset_n) begin
+    logic err_first_q;
+    logic err_second_q;
+    always_ff @(posedge hclk or negedge hreset_n) begin
         if (!hreset_n) begin
             err_first_q  <= 1'b0;
             err_second_q <= 1'b0;
@@ -113,7 +119,7 @@ module ahb_interconnect (
     end
 
     // Read Data and Ready multiplexing
-    always @(*) begin
+    always_comb begin
         case (sel_q)
             3'b001: begin
                 s_hrdata = m0_hrdata;
