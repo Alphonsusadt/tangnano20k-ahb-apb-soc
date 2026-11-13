@@ -8,7 +8,12 @@
 // happened passes without proving anything, so the final report prints them.
 // ==============================================================================
 
-module ahb_lite_checks (
+module ahb_lite_checks
+    import soc_pkg::*;
+#(
+    // 1 checks the SoC memory map. Random tests with their own address space set it to 0.
+    parameter MAP_RULES = 1
+)(
     input wire        hclk,
     input wire        hreset_n,
     input wire [31:0] haddr,
@@ -27,22 +32,25 @@ module ahb_lite_checks (
     wire accept = active && hready;
 
     // A transfer enters its data phase when HREADY accepts its address phase.
+    wire is_rom      = in_rom(haddr);
+    wire is_sram     = in_sram(haddr);
+    wire is_apb      = in_apb(haddr);
+    wire is_unmapped = !(is_rom || is_sram || is_apb);
+
     reg dp_valid_q;
     reg dp_write_q;
+    reg dp_apb_q;   // The transfer in its data phase goes to the AHB-to-APB bridge
     always @(posedge hclk or negedge hreset_n) begin
         if (!hreset_n) begin
             dp_valid_q <= 1'b0;
             dp_write_q <= 1'b0;
+            dp_apb_q   <= 1'b0;
         end else if (hready) begin
             dp_valid_q <= active;
             dp_write_q <= active && hwrite;
+            dp_apb_q   <= active && is_apb;
         end
     end
-
-    wire is_rom      = (haddr[31:15] == 17'h00000);
-    wire is_sram     = (haddr[31:15] == 17'h04000);
-    wire is_apb      = (haddr[31:28] == 4'h4);
-    wire is_unmapped = !(is_rom || is_sram || is_apb);
 
     wire aligned = (hsize == SIZE_BYTE) ||
                    (hsize == SIZE_HALF && haddr[0] == 1'b0) ||
@@ -95,19 +103,21 @@ module ahb_lite_checks (
     ) else $error("Transfer has an illegal HSIZE, or HADDR is not aligned to HSIZE");
 
     // Memory map rules, from docs/memory_map.md.
-    a_unmapped_gets_error: assert property (
-        @(posedge hclk) disable iff (!hreset_n)
-        (accept && is_unmapped) |=> err_first
-    ) else $error("Accepted transfer to an unmapped address did not start ERROR");
+    if (MAP_RULES) begin : g_map
+        a_unmapped_gets_error: assert property (
+            @(posedge hclk) disable iff (!hreset_n)
+            (accept && is_unmapped) |=> err_first
+        ) else $error("Accepted transfer to an unmapped address did not start ERROR");
 
-    a_rom_write_gets_error: assert property (
-        @(posedge hclk) disable iff (!hreset_n)
-        (accept && is_rom && hwrite) |=> err_first
-    ) else $error("Accepted write to ROM did not start ERROR");
+        a_rom_write_gets_error: assert property (
+            @(posedge hclk) disable iff (!hreset_n)
+            (accept && is_rom && hwrite) |=> err_first
+        ) else $error("Accepted write to ROM did not start ERROR");
+    end
 
     // Exercise counters for the final report.
     integer n_accept = 0, n_addr_wait = 0, n_data_wait = 0, n_error = 0;
-    integer n_unmapped = 0, n_rom_write = 0, n_idle = 0;
+    integer n_unmapped = 0, n_rom_write = 0, n_idle = 0, n_apb_error = 0;
     always @(posedge hclk) begin
         if (hreset_n) begin
             if (accept)                         n_accept    <= n_accept + 1;
@@ -117,12 +127,14 @@ module ahb_lite_checks (
             if (accept && is_unmapped)          n_unmapped  <= n_unmapped + 1;
             if (accept && is_rom && hwrite)     n_rom_write <= n_rom_write + 1;
             if (!dp_valid_q)                    n_idle      <= n_idle + 1;
+            // ERROR from the bridge, so the rules above also ran on the PSLVERR path.
+            if (err_first && dp_apb_q)          n_apb_error <= n_apb_error + 1;
         end
     end
 
     final begin
-        $display("SVA: accepted=%0d addr_wait=%0d data_wait=%0d error=%0d unmapped=%0d rom_write=%0d idle=%0d",
-                 n_accept, n_addr_wait, n_data_wait, n_error, n_unmapped, n_rom_write, n_idle);
+        $display("SVA: accepted=%0d addr_wait=%0d data_wait=%0d error=%0d unmapped=%0d rom_write=%0d idle=%0d apb_error=%0d",
+                 n_accept, n_addr_wait, n_data_wait, n_error, n_unmapped, n_rom_write, n_idle, n_apb_error);
     end
 
 endmodule
