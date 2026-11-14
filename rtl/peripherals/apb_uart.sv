@@ -29,7 +29,6 @@ module apb_uart #(
     assign pready  = 1'b1;
     // Offsets past the registers answer with an error instead of aliasing onto them.
     wire reg_valid = (paddr[11:4] == 8'h00);
-    assign pslverr = psel && penable && !reg_valid;
 
     // Registers
     logic [7:0]  tx_data_reg;
@@ -40,11 +39,18 @@ module apb_uart #(
     logic        rx_valid;
     logic        rx_overflow;
     logic        tx_busy;
+    logic        tx_start_req;
 
     wire tx_en     = ctrl_reg[0];
     wire rx_en     = ctrl_reg[1];
     wire tx_empty  = ~tx_busy;
     wire tx_full   = tx_busy;
+
+    // A byte written while the transmitter is busy has nowhere to go. It is refused
+    // with PSLVERR, so the CPU sees a bus fault instead of a byte lost in silence.
+    // tx_start_req covers the cycle between the accepted write and tx_busy rising.
+    wire tx_refuse = pwrite && (paddr[3:2] == 2'b00) && pstrb[0] && (tx_busy || tx_start_req);
+    assign pslverr = psel && penable && (!reg_valid || tx_refuse);
 
     assign uart_irq = (ctrl_reg[2] && tx_empty) || (ctrl_reg[3] && rx_valid);
 
@@ -61,7 +67,6 @@ module apb_uart #(
     // APB Write
     wire apb_write = psel && penable && pwrite && reg_valid;
     wire apb_read  = psel && penable && !pwrite && reg_valid;
-    logic  tx_start_req;
 
     // Receiver handshake: rx_shift holds the completed byte while rx_done is high.
     logic        rx_done;
@@ -98,7 +103,7 @@ module apb_uart #(
             if (apb_write) begin
                 case (paddr[3:2])
                     // Without a valid data byte there is nothing to send.
-                    2'b00: if (pstrb[0]) begin
+                    2'b00: if (pstrb[0] && !tx_refuse) begin
                         tx_data_reg  <= pwdata[7:0];
                         if (tx_en && !tx_busy) begin
                             tx_start_req <= 1'b1;
@@ -211,6 +216,10 @@ module apb_uart #(
                         rx_clk_cnt <= rx_clk_cnt - 1'b1;
                     end
                 end
+            end else begin
+                // RX disabled: drop any frame in progress, so enabling RX again starts
+                // from a clean idle receiver instead of the middle of an old frame.
+                rx_busy <= 1'b0;
             end
         end
     end

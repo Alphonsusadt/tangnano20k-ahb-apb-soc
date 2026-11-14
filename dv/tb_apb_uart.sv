@@ -81,6 +81,23 @@ module tb_apb_uart;
         pwrite  <= 1'b0;
     endtask
 
+    // A write that also returns PSLVERR from the ACCESS cycle.
+    task automatic apb_write_resp(input [31:0] addr, input [31:0] data, output logic err);
+        @(posedge pclk);
+        paddr   <= addr;
+        pwdata  <= data;
+        pwrite  <= 1'b1;
+        psel    <= 1'b1;
+        penable <= 1'b0;
+        @(posedge pclk);
+        penable <= 1'b1;
+        @(posedge pclk);
+        err = pslverr;
+        psel    <= 1'b0;
+        penable <= 1'b0;
+        pwrite  <= 1'b0;
+    endtask
+
     task automatic apb_read(input [31:0] addr, output [31:0] data);
         @(posedge pclk);
         paddr   <= addr;
@@ -272,6 +289,61 @@ module tb_apb_uart;
         check(val[STATUS_RX_OVERFLOW] === 1'b0, "same-cycle read: no overflow");
         apb_read(ADDR_DATA, val);
         check(val[7:0] === 8'h32, $sformatf("same-cycle read: new byte, got %02h", val[7:0]));
+
+        // 8. RX_EN cleared in the middle of a frame drops that frame. Once RX_EN is set
+        //    again on an idle line, the next byte must arrive intact, with no leftover
+        //    state from the dropped frame.
+        fork
+            drive_rx(8'h55, 1.0);
+            begin
+                #(BIT_NS * 4.5);
+                apb_write(ADDR_CTRL, 32'h1);
+            end
+        join
+        #(BIT_NS * 3);
+        apb_read(ADDR_STATUS, val);
+        check(val[STATUS_RX_VALID] === 1'b0, "RX disabled mid-frame: frame dropped");
+        apb_write(ADDR_CTRL, 32'h3);
+        #(BIT_NS * 2);
+        drive_rx(8'hA3, 1.0);
+        expect_rx(8'hA3, "RX enabled again after a dropped frame");
+        expect_rx_idle("RX enabled again after a dropped frame");
+
+        // The same with RX_EN set again while the line is still low (a data bit), so the
+        // receiver must not mistake that bit for a start bit and lose the next byte.
+        fork
+            drive_rx(8'h00, 1.0);
+            begin
+                #(BIT_NS * 2.5);
+                apb_write(ADDR_CTRL, 32'h1);
+                #(BIT_NS * 2);
+                apb_write(ADDR_CTRL, 32'h3);
+            end
+        join
+        #(BIT_NS * 12);
+        apb_read(ADDR_DATA, val);           // Discard whatever the partial frame produced
+        drive_rx(8'h5C, 1.0);
+        expect_rx(8'h5C, "RX enabled again during a low data bit");
+
+        // 9. A write to UART_DATA while the transmitter is busy is refused with
+        //    PSLVERR, and the byte already on the line is not changed.
+        begin
+            logic err;
+            integer n_before;
+            n_before = tx_count;
+            send_tx(8'hC6);
+            apb_write_resp(ADDR_DATA, 32'h99, err);
+            check(err === 1'b1, "write to UART_DATA while TX is busy answers PSLVERR");
+            apb_read(ADDR_STATUS, val);
+            check(val[STATUS_TX_EMPTY] === 1'b0, "TX still busy after the refused write");
+            #(BIT_NS * 24);
+            check(tx_count == n_before + 1, $sformatf("one frame sent, got %0d", tx_count - n_before));
+            check(tx_got[n_before] === 8'hC6, $sformatf("byte on the line is C6, got %02h", tx_got[n_before]));
+            apb_write_resp(ADDR_DATA, 32'h3B, err);
+            check(err === 1'b0, "write to UART_DATA once TX is idle answers OKAY");
+            #(BIT_NS * 12);
+            check(tx_got[n_before + 1] === 8'h3B, $sformatf("next byte is 3B, got %02h", tx_got[n_before + 1]));
+        end
 
         #1000;
         $display("RESULT: %0d checks, %0d failures", checks, failures);
