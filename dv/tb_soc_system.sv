@@ -547,7 +547,7 @@ module tb_soc_system;
         localparam [31:0] PATTERN  = 32'hC001_D00D;
         logic [31:0] val;
         begin_group;
-        u_dut.rom_mem[ROM_WORD >> 2] = PATTERN;
+        u_dut.u_rom.mem[ROM_WORD >> 2] = PATTERN;
 
         // Word write: ERROR for exactly two cycles, then the bus is free.
         xfer(ROM_WORD, 1'b1, SIZE_WORD, 32'hFFFF_FFFF);
@@ -559,7 +559,7 @@ module tb_soc_system;
         hwdata <= GARBAGE;
         @(negedge clk);
         check_response(1'b0, 1'b1, "ROM write: OKAY after ERROR");
-        check_eq(u_dut.rom_mem[ROM_WORD >> 2], PATTERN, "ROM write: contents unchanged");
+        check_eq(u_dut.u_rom.mem[ROM_WORD >> 2], PATTERN, "ROM write: contents unchanged");
 
         // Every write size is refused.
         saw_error = 1'b0;
@@ -568,7 +568,7 @@ module tb_soc_system;
         saw_error = 1'b0;
         write(ROM_WORD + 32'h2, SIZE_HALF, 32'hFFFF_FFFF);
         check_eq({31'h0, saw_error}, 32'h1, "ROM halfword write answers ERROR");
-        check_eq(u_dut.rom_mem[ROM_WORD >> 2], PATTERN, "ROM small writes: contents unchanged");
+        check_eq(u_dut.u_rom.mem[ROM_WORD >> 2], PATTERN, "ROM small writes: contents unchanged");
 
         // A read still answers OKAY with its data.
         saw_error = 1'b0;
@@ -643,7 +643,7 @@ module tb_soc_system;
         check_response(1'b1, 1'b1, "Write behind APB read: second ERROR cycle");
         hwdata <= GARBAGE;
         @(negedge clk);
-        check_eq(u_dut.rom_mem[ROM_WORD >> 2], PATTERN, "ROM contents unchanged at the end");
+        check_eq(u_dut.u_rom.mem[ROM_WORD >> 2], PATTERN, "ROM contents unchanged at the end");
         end_group("ROM write");
     endtask
 
@@ -822,7 +822,7 @@ module tb_soc_system;
         for (i = 0; i < 16; i = i + 1) begin
             write(sram_addr(i[3:0]), SIZE_WORD, 32'h0);
             rom_model[i] = rnd();
-            u_dut.rom_mem[rom_addr(i[3:0]) >> 2] = rom_model[i];
+            u_dut.u_rom.mem[rom_addr(i[3:0]) >> 2] = rom_model[i];
         end
         for (i = 0; i < 64; i = i + 1) sram_model[i] = 8'h00;
         m_gpio_out  = 6'h3F;

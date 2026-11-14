@@ -59,6 +59,7 @@ add_file ../../rtl/soc_top.sv
 add_file ../../rtl/interconnect/obi_to_ahb_adapter.sv
 add_file ../../rtl/interconnect/ahb_interconnect.sv
 add_file ../../rtl/interconnect/ahb_to_apb_bridge.sv
+add_file ../../rtl/memory/ahb_rom.sv
 add_file ../../rtl/memory/ahb_sram.sv
 add_file ../../rtl/peripherals/apb_uart.sv
 add_file ../../rtl/peripherals/apb_spi.sv

@@ -23,6 +23,9 @@ lint_off -rule UNUSEDSIGNAL -file "*rtl/interconnect/ahb_to_apb_bridge.sv" -matc
 lint_off -rule UNUSEDSIGNAL -file "*rtl/memory/ahb_sram.sv" -match "*'htrans'*"
 // The SRAM is 32 KB, so the address bits above its own range are not part of the decode.
 lint_off -rule UNUSEDSIGNAL -file "*rtl/memory/ahb_sram.sv" -match "*'haddr'*"
+// The ROM has the same 32 KB decode and only checks HTRANS[1].
+lint_off -rule UNUSEDSIGNAL -file "*rtl/memory/ahb_rom.sv" -match "*'haddr'*"
+lint_off -rule UNUSEDSIGNAL -file "*rtl/memory/ahb_rom.sv" -match "*'htrans'*"
 
 // The ROM is read-only and always answers with a full word, so the write-side signals
 // and the upper address bits are not used by the ROM.

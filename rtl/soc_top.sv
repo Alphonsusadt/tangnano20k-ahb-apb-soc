@@ -104,11 +104,9 @@ module soc_top #(
     wire        imem_hwrite;
     wire [2:0]  imem_hsize;
     wire [31:0] imem_hwdata;
-    reg  [31:0] imem_hrdata;
-    reg         rom_err_first_q;
-    reg         rom_err_second_q;
-    wire        imem_hready = !rom_err_first_q;
-    wire        imem_hresp  = rom_err_first_q || rom_err_second_q;
+    wire [31:0] imem_hrdata;
+    wire        imem_hready;
+    wire        imem_hresp;
 
     // Slave 1: Data SRAM
     wire        dmem_hsel;
@@ -188,30 +186,21 @@ module soc_top #(
     // --------------------------------------------------------------------------
     // Instruction ROM (32 KB = 8192 words x 32-bit)
     // --------------------------------------------------------------------------
-    reg [31:0] rom_mem [0:8191];
-    initial begin
-        if (BOOT_HEX_FILE != "") begin
-            $readmemh(BOOT_HEX_FILE, rom_mem);
-        end
-    end
-
-    always_ff @(posedge clk) begin
-        if (imem_hsel && (imem_htrans[1])) begin
-            imem_hrdata <= rom_mem[imem_haddr[14:2]];
-        end
-    end
-
-    // The ROM is read-only, so an accepted write answers with a two-cycle ERROR. A
-    // write still waiting behind a stalled transfer has not been accepted yet.
-    always_ff @(posedge clk or negedge rst_sys_n) begin
-        if (!rst_sys_n) begin
-            rom_err_first_q  <= 1'b0;
-            rom_err_second_q <= 1'b0;
-        end else begin
-            rom_err_first_q  <= imem_hsel && imem_htrans[1] && imem_hwrite && cpu_hready;
-            rom_err_second_q <= rom_err_first_q;
-        end
-    end
+    ahb_rom #(
+        .ADDR_WIDTH (15),
+        .HEX_FILE   (BOOT_HEX_FILE)
+    ) u_rom (
+        .hclk       (clk),
+        .hreset_n   (rst_sys_n),
+        .hsel       (imem_hsel),
+        .haddr      (imem_haddr),
+        .htrans     (imem_htrans),
+        .hwrite     (imem_hwrite),
+        .hready     (cpu_hready),
+        .hrdata     (imem_hrdata),
+        .hreadyout  (imem_hready),
+        .hresp      (imem_hresp)
+    );
 
     // --------------------------------------------------------------------------
     // Data SRAM (32 KB = 8192 words x 32-bit)

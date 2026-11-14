@@ -348,7 +348,7 @@ module tb_soc_ibex;
 
     initial begin
         if ($value$plusargs("image=%s", image)) begin
-            $readmemh(image, u_dut.rom_mem);
+            $readmemh(image, u_dut.u_rom.mem);
         end
         wait_cycles(20);
         check("LEDs are off in reset", led === 6'b111111);

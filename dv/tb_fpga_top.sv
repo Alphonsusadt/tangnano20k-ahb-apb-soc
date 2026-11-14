@@ -267,21 +267,21 @@ module tb_fpga_top;
         expect_report("S1 reset", "SOC PASS\015\n");
 
         // ---- Fault: first ROM word wrong ----
-        saved_word = u_dut.u_soc.rom_mem[0];
-        u_dut.u_soc.rom_mem[0] = 32'hFFFF_FFFF;
+        saved_word = u_dut.u_soc.u_rom.mem[0];
+        u_dut.u_soc.u_rom.mem[0] = 32'hFFFF_FFFF;
         press_reset;
         expect_report("Bad ROM word 0", "SOC FAIL 00\015\n");
         wait_cycles(200);
         check("FAIL LED is on", led[2] === 1'b0);
         check("PASS LED is off", led[1] === 1'b1);
-        u_dut.u_soc.rom_mem[0] = saved_word;
+        u_dut.u_soc.u_rom.mem[0] = saved_word;
 
         // ---- Fault: last ROM word wrong ----
-        saved_word = u_dut.u_soc.rom_mem[8191];
-        u_dut.u_soc.rom_mem[8191] = 32'h0;
+        saved_word = u_dut.u_soc.u_rom.mem[8191];
+        u_dut.u_soc.u_rom.mem[8191] = 32'h0;
         press_reset;
         expect_report("Bad ROM last word", "SOC FAIL 01\015\n");
-        u_dut.u_soc.rom_mem[8191] = saved_word;
+        u_dut.u_soc.u_rom.mem[8191] = saved_word;
 
         // ---- Fault: bridge stops answering ERROR for a reserved address ----
         force u_dut.u_soc.bridge_hresp = 1'b0;

@@ -52,14 +52,12 @@ run_mutant() {
 run_mutant error_one_cycle a_error_last_after_first rtl/memory/ahb_sram.sv \
     's/assign hresp     = 1'"'"'b0;/assign hresp     = |wr_strb_q;/'
 
-run_mutant error_no_last_cycle a_error_first_then_last rtl/soc_top.sv \
-    's/wire        imem_hresp  = rom_err_first_q || rom_err_second_q;/wire        imem_hresp  = rom_err_first_q;/'
+run_mutant error_no_last_cycle a_error_first_then_last rtl/memory/ahb_rom.sv     's/assign hresp     = err_first_q || err_second_q;/assign hresp     = err_first_q;/'
 
-run_mutant error_on_idle a_idle_is_zero_wait_okay rtl/soc_top.sv \
-    's/imem_hsel \&\& imem_htrans\[1\] \&\& imem_hwrite \&\& //'
+# ERROR on every cycle the bus is ready, so IDLE data phases answer ERROR too.
+run_mutant error_on_idle a_idle_is_zero_wait_okay rtl/memory/ahb_rom.sv     's/err_first_q  <= access \&\& hwrite;/err_first_q  <= hready;/'
 
-run_mutant rom_write_no_error a_rom_write_gets_error rtl/soc_top.sv \
-    's/rom_err_first_q  <= imem_hsel \&\& imem_htrans\[1\] \&\& imem_hwrite \&\& cpu_hready;/rom_err_first_q  <= 1'"'"'b0;/'
+run_mutant rom_write_no_error a_rom_write_gets_error rtl/memory/ahb_rom.sv     's/err_first_q  <= access \&\& hwrite;/err_first_q  <= 1'"'"'b0;/'
 
 run_mutant unmapped_no_error a_unmapped_gets_error rtl/interconnect/ahb_interconnect.sv \
     's/err_first_q  <= s_hready \&\& unmapped;/err_first_q  <= 1'"'"'b0;/'
