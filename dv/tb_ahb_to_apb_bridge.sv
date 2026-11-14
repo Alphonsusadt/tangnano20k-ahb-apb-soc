@@ -112,6 +112,7 @@ module tb_ahb_to_apb_bridge;
         reg [3:0] strobes;
         reg [31:0] expected_read;
         reg saw_setup;
+        reg first_error;
         begin
             case (address[31:12])
                 20'h40000: begin target = 1; expected_read = 32'h11223344; end
@@ -129,25 +130,33 @@ module tb_ahb_to_apb_bridge;
             slave_errors = slave_error ? 3'b111 : ~target;
             hsel = 1; htrans = trans; haddr = address; hwrite = writing;
             hsize = size; hwdata = 32'hdeadbeef;
+            // The first data-phase cycle is already APB SETUP, or the first ERROR cycle
+            // for a transfer the bridge refuses itself.
             @(posedge hclk); #1;
-            check(!hready && selects == 0, "address accepted before APB data capture");
+            saw_setup = 0;
+            first_error = hresp;
+            if (local_error) begin
+                check(hresp && !hready && selects == 0, "refused transfer starts ERROR at once");
+            end else begin
+                check(!hready && !penable && selects == target, "SETUP in the first data-phase cycle");
+                check(paddr == address && pwrite == writing && pprot == 0,
+                      "latched APB address and control");
+                check(pstrb == strobes, "APB byte strobes match HSIZE and lane");
+                saw_setup = 1;
+            end
             @(negedge hclk);
             hsel = 0; htrans = 0; hwdata = data;
             // Change the next address/control; accepted context must be retained.
             haddr = ~address; hwrite = !writing; hsize = 7;
-            cycles = 0; error_cycles = 0; saw_setup = 0;
+            #1;
+            if (writing && !local_error) check(pwdata == data, "write data valid in SETUP");
+            cycles = 0; error_cycles = first_error ? 1 : 0;
             begin : response_loop
                 repeat (40) begin
                     @(posedge hclk); #1;
                     cycles = cycles + 1;
-                    if ((|selects) && !penable) begin
-                        saw_setup = 1;
-                        check(!local_error && selects == target, "correct target in SETUP");
-                        check(paddr == address && pwrite == writing && pprot == 0,
-                              "latched APB address and control");
-                        check(pstrb == strobes, "APB byte strobes match HSIZE and lane");
-                        if (writing) check(pwdata == data, "write data valid already in SETUP");
-                    end
+                    check(!((|selects) && !penable), "only one SETUP cycle per transfer");
+                    if (writing && penable) check(pwdata == data, "write data held through ACCESS");
                     if (hresp) begin
                         error_cycles = error_cycles + 1;
                         check(slave_error || local_error, "only expected transfers return ERROR");
@@ -157,7 +166,9 @@ module tb_ahb_to_apb_bridge;
                 end
             end
             check(cycles < 40 && hready, "bounded AHB response");
-            check(cycles == (local_error ? 2 : waits + 3 + slave_error),
+            // Data-phase cycles after the first: ACCESS (1 + waits) and the response, or
+            // the second ERROR cycle when the bridge refuses the transfer itself.
+            check(cycles == (local_error ? 1 : waits + 2 + slave_error),
                   "response latency matches APB wait count and error sequencing");
             check(error_cycles == ((slave_error || local_error) ? 2 : 0), "complete two-cycle ERROR or OKAY");
             check(saw_setup == !local_error, "invalid transfers do not reach APB");

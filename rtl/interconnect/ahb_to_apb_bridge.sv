@@ -48,12 +48,24 @@ module ahb_to_apb_bridge
     input  wire        pslverr_gpio
 );
 
-    // One outstanding transfer. DATA captures AHB write data before APB SETUP.
+    // One outstanding transfer. The first AHB data-phase cycle is already APB SETUP:
+    // HWDATA is valid there, and because the bridge holds HREADY low through SETUP and
+    // ACCESS, the master must keep it stable, so PWDATA can come straight from HWDATA
+    // in SETUP and from the copy taken at the end of SETUP during ACCESS.
     typedef enum logic [2:0] {
-        ST_IDLE, ST_DATA, ST_SETUP, ST_ACCESS, ST_RESPONSE, ST_ERROR1, ST_ERROR2
+        ST_IDLE, ST_SETUP, ST_ACCESS, ST_RESPONSE, ST_ERROR1, ST_ERROR2
     } state_t;
     state_t state;
-    logic invalid_transfer;
+    logic [31:0] pwdata_q;
+
+    // A transfer the bridge refuses itself: no peripheral block, or misaligned.
+    wire invalid_transfer =
+        !(in_apb_block(haddr, UART_BASE) ||
+          in_apb_block(haddr, SPI_BASE) ||
+          in_apb_block(haddr, GPIO_BASE)) ||
+        (hsize > 2) ||
+        ((hsize == 1) && haddr[0]) ||
+        ((hsize == 2) && (haddr[1:0] != 0));
     wire sel_uart_raw = in_apb_block(paddr, UART_BASE);
     wire sel_spi_raw  = in_apb_block(paddr, SPI_BASE);
     wire sel_gpio_raw = in_apb_block(paddr, GPIO_BASE);
@@ -72,6 +84,7 @@ module ahb_to_apb_bridge
         hready = !hreset_n || (state == ST_IDLE) ||
                  (state == ST_RESPONSE) || (state == ST_ERROR2);
         penable = hreset_n && (state == ST_ACCESS);
+        pwdata  = (state == ST_SETUP) ? hwdata : pwdata_q;
     end
 
     always_ff @(posedge hclk or negedge hreset_n) begin
@@ -79,11 +92,10 @@ module ahb_to_apb_bridge
             state <= ST_IDLE;
             paddr <= 0;
             pwrite <= 0;
-            pwdata <= 0;
+            pwdata_q <= 0;
             pprot <= 0;
             pstrb <= 0;
             hrdata <= 0;
-            invalid_transfer <= 0;
         end else begin
             case (state)
                 ST_IDLE, ST_RESPONSE, ST_ERROR2: begin
@@ -94,13 +106,6 @@ module ahb_to_apb_bridge
                         paddr <= haddr;
                         pwrite <= hwrite;
                         pprot <= 0; // This interface has no HPROT input.
-                        invalid_transfer <=
-                            !(in_apb_block(haddr, UART_BASE) ||
-                              in_apb_block(haddr, SPI_BASE) ||
-                              in_apb_block(haddr, GPIO_BASE)) ||
-                            (hsize > 2) ||
-                            ((hsize == 1) && haddr[0]) ||
-                            ((hsize == 2) && (haddr[1:0] != 0));
                         if (!hwrite) pstrb <= 0;
                         else case (hsize)
                             0: pstrb <= 4'b0001 << haddr[1:0];
@@ -108,15 +113,13 @@ module ahb_to_apb_bridge
                             2: pstrb <= 4'b1111;
                             default: pstrb <= 0;
                         endcase
-                        state <= ST_DATA;
+                        state <= invalid_transfer ? ST_ERROR1 : ST_SETUP;
                     end else state <= ST_IDLE;
                 end
-                ST_DATA: begin
-                    pwdata <= hwdata;
-                    if (invalid_transfer) state <= ST_ERROR1;
-                    else state <= ST_SETUP;
+                ST_SETUP: begin
+                    pwdata_q <= hwdata;
+                    state    <= ST_ACCESS;
                 end
-                ST_SETUP: state <= ST_ACCESS;
                 ST_ACCESS: if (selected_pready) begin
                     hrdata <= selected_prdata;
                     if (selected_pslverr) state <= ST_ERROR1;

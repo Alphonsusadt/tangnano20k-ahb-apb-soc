@@ -31,7 +31,7 @@ build_and_run() {
 log=$(build_and_run rtl/interconnect/ahb_to_apb_bridge.sv clean) || { echo "FAIL  APB waits                build error"; exit 1; }
 result=$(grep -a '^RESULT: ' "$log" | tr -d '\r')
 waits=$(grep -a '^APB: ' "$log" | tr -d '\r' | sed 's/.*wait_cycles=\([0-9]*\).*/\1/')
-if grep -aq 'Assertion' "$log" || ! grep -aq '^RESULT: .*, 0 failures' "$log" ||
+if grep -aq 'Assertion' "$log" || ! grep -aqE '^RESULT: [0-9]+ checks, 0 failures' "$log" ||
    [ -z "$waits" ] || [ "$waits" -eq 0 ]; then
     echo "FAIL  APB waits                $result, wait_cycles=${waits:-none}, see $log"
     exit 1

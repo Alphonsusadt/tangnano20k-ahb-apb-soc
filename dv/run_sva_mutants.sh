@@ -83,7 +83,7 @@ run_mutant size_always_word a_size_and_alignment rtl/interconnect/obi_to_ahb_ada
 # sequencing directly, so the matching rule in dv/sva/apb_checks.sv must fire.
 run_mutant apb_penable_early a_apb_access_follows_setup rtl/interconnect/ahb_to_apb_bridge.sv     's/penable = hreset_n \&\& (state == ST_ACCESS);/penable = hreset_n \&\& (state == ST_ACCESS || state == ST_SETUP);/'
 
-run_mutant apb_addr_moves a_apb_stable_until_done rtl/interconnect/ahb_to_apb_bridge.sv     's/ST_SETUP: state <= ST_ACCESS;/ST_SETUP: begin state <= ST_ACCESS; paddr <= paddr ^ 32'"'"'h4; end/'
+run_mutant apb_addr_moves a_apb_stable_until_done rtl/interconnect/ahb_to_apb_bridge.sv     's/pwdata_q <= hwdata;/pwdata_q <= hwdata; paddr <= paddr ^ 32'"'"'h4;/'
 
 run_mutant apb_enable_stays a_apb_enable_drops_after_complete rtl/interconnect/ahb_to_apb_bridge.sv     's/else state <= ST_RESPONSE;/else state <= ST_ACCESS;/'
 

@@ -29,7 +29,7 @@ log=$(build_and_run rtl/interconnect/obi_to_ahb_adapter.sv clean) ||
     { echo "FAIL  OBI random + SVA         build error"; exit 1; }
 result=$(grep -a '^RESULT: ' "$log" | tr -d '\r')
 svaline=$(grep -a '^SVA: ' "$log" | tr -d '\r')
-if grep -aq 'Assertion' "$log" || ! grep -aq '^RESULT: .*, 0 failures' "$log" ||
+if grep -aq 'Assertion' "$log" || ! grep -aqE '^RESULT: [0-9]+ checks, 0 failures' "$log" ||
    [ -z "$svaline" ]; then
     echo "FAIL  OBI random + SVA         $result; $svaline, see $log"
     exit 1

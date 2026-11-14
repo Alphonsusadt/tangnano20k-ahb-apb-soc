@@ -7,7 +7,7 @@ Jalankan dari direktori utama proyek menggunakan PowerShell:
 
 ```powershell
 New-Item -ItemType Directory -Force work | Out-Null
-iverilog -g2012 -Wall -s tb_ahb_to_apb_bridge -o work/ahb_bridge.vvp dv/tb_ahb_to_apb_bridge.sv rtl/interconnect/ahb_to_apb_bridge.sv
+iverilog -g2012 -Wall -s tb_ahb_to_apb_bridge -o work/ahb_bridge.vvp dv/tb_ahb_to_apb_bridge.sv rtl/soc_pkg.sv rtl/interconnect/ahb_to_apb_bridge.sv
 if ($LASTEXITCODE -ne 0) { throw 'Kompilasi gagal' }
 vvp work/ahb_bridge.vvp
 ```
@@ -47,18 +47,28 @@ Tambahkan sinyal `hclk`, `hreset_n`, `hsel`, `htrans`, `haddr`, `hwrite`,
   HRESP=1/HREADY=0, lalu HRESP=1/HREADY=1.
 - Alamat di luar map, alias alamat dengan bit atas berbeda, ukuran lebih dari word,
   dan alamat tidak aligned menghasilkan ERROR tanpa transaksi APB.
-- Reset asinkron saat DATA, SETUP, dan stalled ACCESS; transaksi dibatalkan,
+- Reset asinkron saat SETUP dan stalled ACCESS; transaksi dibatalkan,
   tidak ada completion tambahan, dan transaksi berikutnya berhasil.
 - Jumlah completion APB dan latensi respons diperiksa; timeout lokal dan watchdog global.
 
 ## Perbaikan RTL
 
-Alur sukses sekarang adalah IDLE -> DATA -> SETUP -> ACCESS -> RESPONSE.
-DATA menangkap HWDATA satu siklus setelah alamat diterima. PSEL baru aktif pada
-SETUP, sehingga PWDATA sudah stabil sebelum ACCESS. ACCESS menangkap PRDATA
-serta PSLVERR hanya ketika peripheral yang dipilih siap. Respons sukses disimpan
-satu siklus; respons error memakai ERROR1 dan ERROR2. RESPONSE/ERROR2 juga dapat
-menerima alamat berikutnya pada edge penyelesaian AHB.
+Alur sukses sekarang adalah IDLE -> SETUP -> ACCESS -> RESPONSE. Siklus fase data
+AHB yang pertama langsung menjadi SETUP APB. HWDATA sudah valid di siklus itu, dan
+karena bridge menahan HREADY rendah selama SETUP dan ACCESS, master wajib menjaga
+HWDATA tetap stabil. Karena itu PWDATA diambil langsung dari HWDATA selama SETUP,
+lalu dari salinan yang disimpan di akhir SETUP selama ACCESS. ACCESS menangkap
+PRDATA serta PSLVERR hanya ketika peripheral yang dipilih siap. Respons sukses
+disimpan satu siklus; respons error memakai ERROR1 dan ERROR2. Transfer yang
+ditolak bridge sendiri (alamat di luar map atau tidak aligned) langsung masuk
+ERROR1 di siklus fase data pertama. RESPONSE/ERROR2 juga dapat menerima alamat
+berikutnya pada edge penyelesaian AHB.
+
+Versi lama punya state DATA tambahan untuk menyalin HWDATA sebelum SETUP, sehingga
+setiap akses APB butuh 3 wait state. Sekarang 2 wait state tanpa PREADY rendah
+(SETUP dan ACCESS), dan transfer yang ditolak bridge selesai satu siklus lebih
+cepat. Testbench memeriksa latensi ini: `waits + 2` siklus sesudah SETUP untuk
+transfer valid, satu siklus sesudah ERROR1 untuk transfer yang ditolak.
 
 Decode menggunakan alamat penuh tiga wilayah 4 KB, bukan hanya bit [15:12].
 Byte/halfword memakai lane AHB apa adanya: bridge tidak menggeser HWDATA/PRDATA;
@@ -67,7 +77,7 @@ karena antarmuka bridge ini belum menyediakan HPROT.
 
 ## Hasil
 
-Regresi terbaru: **1828 checks, 0 failures**, tanpa FAIL/FATAL, dengan pesan:
+Regresi terbaru (14 November 2026, tanpa state DATA): **1933 checks, 0 failures**, tanpa FAIL/FATAL, dengan pesan:
 
 ```text
 PASS: AHB bridge directed tests
@@ -75,8 +85,8 @@ PASS: AHB bridge directed tests
 
 Log tersedia di `work/ahb_bridge.log` dan waveform di
 `tb_ahb_to_apb_bridge.vcd`. Sebagai kontrol negatif, testbench baru dijalankan
-terhadap RTL versi HEAD sebelum perubahan lokal: **1032 checks, 317 failures**
-dan FATAL. Jumlah checks berbeda karena jalur waktu pada RTL lama berbeda.
+terhadap RTL versi sebelumnya yang masih punya state DATA: **2137 checks, 220
+failures**. Jumlah checks berbeda karena jalur waktu pada RTL lama berbeda.
 
 Riwayat: testbench awal menghasilkan 87 checks/15 failures; perbaikan timing
 pertama menghasilkan 87 checks/0 failures, tetapi belum memeriksa kestabilan

@@ -296,11 +296,13 @@ module tb_fpga_top;
         release u_dut.u_soc.cpu_hresp;
 
         // ---- Fault: SPI stays busy, so the poll must time out, not hang ----
-        // Timing out takes 2^20 polls, so the poll counter is advanced close to its end.
+        // Busy is forced only once the TXDATA write (step 18) has been accepted: a write
+        // while busy is refused with PSLVERR, which would fail step 18 instead of
+        // testing the poll timeout. Timing out takes 2^20 polls, so the poll counter is
+        // advanced close to its end.
         press_reset;
-        wait_cycles(10);
-        force u_dut.u_soc.u_spi.busy = 1'b1;
         wait (u_dut.u_soc.g_selftest.u_selftest.pc == 5'd19);
+        force u_dut.u_soc.u_spi.busy = 1'b1;
         force u_dut.u_soc.g_selftest.u_selftest.poll_cnt = 20'hFFFFF;
         expect_report("SPI stuck busy", "SOC FAIL 13\015\n");
         release u_dut.u_soc.g_selftest.u_selftest.poll_cnt;

@@ -43,7 +43,7 @@ report() {
     local name=$1 status=$2 log=$3 expected=$4
     local total clean
     total=$(grep -ac '^RESULT: ' "$log")
-    clean=$(grep -ac '^RESULT: .*, 0 failures' "$log")
+    clean=$(grep -acE '^RESULT: [0-9]+ checks, 0 failures' "$log")
     if [ "$status" -eq 0 ] && [ "$total" -eq "$expected" ] && [ "$clean" -eq "$expected" ]; then
         printf 'PASS  %-24s %s\n' "$name" "$(grep -a '^RESULT: ' "$log" | sed 's/^RESULT: //' | tr -d '\r' | paste -sd ';' -)"
         passed=$((passed + 1))
