@@ -19,7 +19,7 @@ module apb_gpio (
     output wire        pslverr,
 
     // External GPIO Pins
-    output logic  [5:0]  gpio_out, // Tang Nano 20K Onboard LEDs (active low)
+    output wire   [5:0]  gpio_out, // Tang Nano 20K Onboard LEDs (active low)
     input  wire [1:0]  gpio_in   // Tang Nano 20K Pushbuttons S1 & S2
 );
 
@@ -28,11 +28,17 @@ module apb_gpio (
     wire reg_valid = (paddr[11:4] == 8'h00) && (paddr[3:2] != 2'b11);
     assign pslverr = psel && penable && !reg_valid;
 
+    logic [5:0] out_reg;
     logic [5:0] dir_reg;
+
+    // GPIO_DIR is an output enable. A set bit drives the pin from GPIO_OUT; a clear bit
+    // releases it. The LED pins have no input path on this board, so a released pin is
+    // driven to the LED's off level (1, active low).
+    assign gpio_out = out_reg | ~dir_reg;
 
     always_comb begin
         case (paddr[3:2])
-            2'b00: prdata = {26'h0, gpio_out};
+            2'b00: prdata = {26'h0, out_reg};
             2'b01: prdata = {30'h0, gpio_in};
             2'b10: prdata = {26'h0, dir_reg};
             default: prdata = 32'h0;
@@ -44,11 +50,11 @@ module apb_gpio (
 
     always_ff @(posedge pclk or negedge preset_n) begin
         if (!preset_n) begin
-            gpio_out <= 6'b111111; // LEDs OFF (active-low)
+            out_reg  <= 6'b111111; // LEDs OFF (active-low)
             dir_reg  <= 6'b111111;
         end else if (apb_write) begin
             case (paddr[3:2])
-                2'b00: if (pstrb[0]) gpio_out <= pwdata[5:0];
+                2'b00: if (pstrb[0]) out_reg  <= pwdata[5:0];
                 2'b10: if (pstrb[0]) dir_reg  <= pwdata[5:0];
                 default: ;
             endcase

@@ -218,7 +218,7 @@ module tb_soc_system;
     endtask
 
     // ---------------------------------------------------------------------------
-    // Reset values from docs/memory_map.md. SPI_SR compares only BUSY and TX_EMPTY.
+    // Reset values from docs/memory_map.md.
     // ---------------------------------------------------------------------------
     task automatic test_reset_values;
         logic [31:0] val;
@@ -232,7 +232,7 @@ module tb_soc_system;
         check_eq({31'h0, uart_tx}, 32'h1, "UART TX idles high");
         check_read(SPI_CR, 32'h00, "SPI_CR reset value");
         read(SPI_SR, val);
-        check_eq(val & 32'h3, 32'h2, "SPI_SR idle bits");
+        check_eq(val, 32'h2, "SPI_SR reset value");
         check_read(SPI_CS, 32'hFF, "SPI_CS reset value");
         check_eq({24'h0, spi_cs_n}, 32'hFF, "SPI chip selects are idle");
         end_group("reset values");
@@ -248,6 +248,15 @@ module tb_soc_system;
         check_eq({26'h0, led}, 32'h15, "GPIO_OUT word write reaches the LEDs");
         write(GPIO_OUT, SIZE_BYTE, 32'hFFFF_FF2A);
         check_eq({26'h0, led}, 32'h2A, "GPIO_OUT byte write reaches the LEDs");
+
+        // GPIO_DIR is an output enable: a clear bit releases the pin, and the LED is off.
+        write(GPIO_OUT, SIZE_WORD, 32'h0000_0015);
+        write(GPIO_DIR, SIZE_WORD, 32'h0000_000F);
+        check_eq({26'h0, led}, 32'h35, "GPIO_DIR clear bits turn their LEDs off");
+        write(GPIO_DIR, SIZE_WORD, 32'h0000_0000);
+        check_eq({26'h0, led}, 32'h3F, "GPIO_DIR zero releases every LED");
+        write(GPIO_DIR, SIZE_WORD, 32'h0000_003F);
+        check_eq({26'h0, led}, 32'h15, "GPIO_DIR set again drives GPIO_OUT");
         write(GPIO_OUT, SIZE_WORD, 32'h0000_003F);
 
         btn_s2 <= 1'b0;
@@ -936,7 +945,8 @@ module tb_soc_system;
         repeat (4) @(negedge clk);
 
         // The pins must agree with the model after all the traffic.
-        check_eq({26'h0, led}, {26'h0, m_gpio_out}, "LEDs match the model");
+        // A pin with its GPIO_DIR bit clear is released, which drives the LED off (1).
+        check_eq({26'h0, led}, {26'h0, m_gpio_out | ~m_gpio_dir}, "LEDs match the model");
         check_eq({24'h0, spi_cs_n}, {24'h0, m_spi_cs}, "chip selects match the model");
         end_group(name);
     endtask
