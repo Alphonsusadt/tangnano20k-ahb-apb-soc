@@ -50,7 +50,8 @@ Modul APB UART menyediakan komunikasi serial asinkron dengan format tetap 8-N-1 
 Dengan nilai reset 234 dan clock 27 MHz, satu bit berlangsung 235 clock, yaitu sekitar 114.894 baud (0,27% di bawah 115.200).
 
 ### Perilaku `UART_DATA` (`0x00`)
-- Tulis saat `TX_EMPTY` = `0` atau `TX_EN` = `0` tidak mengirim byte tersebut, jadi periksa `TX_EMPTY` lebih dulu.
+- Tulis saat `TX_EMPTY` = `0` (transmitter sibuk) ditolak dengan `PSLVERR`, yang diteruskan bridge sebagai `ERROR`, sehingga CPU mengalami store fault. Byte yang sedang dikirim tidak berubah. Firmware harus memeriksa `TX_EMPTY` lebih dulu.
+- Tulis saat `TX_EN` = `0` diterima (`OKAY`) dan disimpan, tetapi tidak dikirim.
 - Baca mengembalikan byte terakhir dan menghapus `RX_VALID` serta `RX_OVERFLOW`.
 - Byte dengan stop bit yang salah (framing error) dibuang tanpa flag.
 
@@ -62,7 +63,7 @@ Dengan nilai reset 234 dan clock 27 MHz, satu bit berlangsung 235 clock, yaitu s
 
 ### Deskripsi Bit `UART_CTRL` (`0x08`)
 - **Bit [0]** (`TX_EN`): `1` = Aktifkan transmitter UART.
-- **Bit [1]** (`RX_EN`): `1` = Aktifkan receiver UART.
+- **Bit [1]** (`RX_EN`): `1` = Aktifkan receiver UART. Mengubahnya ke `0` di tengah frame membuang frame itu, dan receiver kembali idle. Setelah `RX_EN` = `1` lagi, receiver menunggu start bit berikutnya.
 - **Bit [2]** (`TX_IRQ_EN`): `1` = `uart_irq` aktif saat TX kosong. Belum tersambung ke CPU.
 - **Bit [3]** (`RX_IRQ_EN`): `1` = `uart_irq` aktif saat `RX_VALID` = `1`. Belum tersambung ke CPU.
 
@@ -76,12 +77,14 @@ Modul APB SPI Master digunakan untuk mengontrol perangkat SPI eksternal (Flash, 
 | Offset | Nama Register | Akses | Reset Value | Deskripsi |
 | :--- | :--- | :--- | :--- | :--- |
 | `0x00` | `SPI_CR` | R/W | `0x00000000` | SPI Control Register (Enable, Mode, Clock Divider). |
-| `0x04` | `SPI_SR` | RO | `0x00000012` | SPI Status Register. |
+| `0x04` | `SPI_SR` | RO | `0x00000002` | SPI Status Register. |
 | `0x08` | `SPI_TXDATA`| R/W | `0x00000000` | Write: byte yang dikirim, dan memulai transfer. Read: byte terakhir yang ditulis. |
 | `0x0C` | `SPI_RXDATA`| RO | `0x00000000` | Byte yang diterima pada transfer terakhir. Valid setelah `BUSY` kembali `0`. |
 | `0x10` | `SPI_CS` | R/W | `0x000000FF` | Chip Select Control (Active-LOW per bit). |
 
-Tulis ke `SPI_TXDATA` saat `SPI_EN` = `0` atau `BUSY` = `1` tidak memulai transfer, jadi tunggu `BUSY` = `0` lebih dulu.
+Tulis ke `SPI_TXDATA` saat `BUSY` = `1` ditolak dengan `PSLVERR` (diteruskan bridge sebagai `ERROR`), dan `SPI_TXDATA` tetap berisi byte yang sedang dikirim. Tulis saat `SPI_EN` = `0` diterima tetapi tidak memulai transfer. Tunggu `BUSY` = `0` sebelum menulis.
+
+Konfigurasi di `SPI_CR` (mode, urutan bit, `CLK_DIV`, `AUTO_CS`) disalin saat transfer dimulai. Tulis ke `SPI_CR` selama `BUSY` disimpan dan bisa dibaca kembali, tetapi baru berlaku untuk byte berikutnya. Byte yang sedang berjalan tidak terpengaruh.
 
 ### Deskripsi Bit `SPI_CR` (`0x00`)
 - **Bit [0]** (`SPI_EN`): `1` = Aktifkan modul SPI Master, `0` = Disable.
@@ -95,8 +98,7 @@ Tulis ke `SPI_TXDATA` saat `SPI_EN` = `0` atau `BUSY` = `1` tidak memulai transf
 - **Bit [0]** (`BUSY`): `1` = Transfer sedang berjalan. Pakai bit ini untuk menunggu transfer selesai.
 - **Bit [1]** (`TX_EMPTY`): Kebalikan dari `BUSY`.
 - **Bit [2]** (`TX_FULL`): Sama dengan `BUSY`.
-- **Bit [3]** (`RX_EMPTY`): Selalu `0`. Tidak membawa informasi.
-- **Bit [4]** (`RX_FULL`): Selalu `1`. Tidak membawa informasi.
+- **Bit [31:3]**: Reserved, dibaca `0`. Bit [3] dan [4] dulu bernama `RX_EMPTY` dan `RX_FULL`, tetapi nilainya konstan karena SPI tidak punya FIFO RX. `SPI_RXDATA` valid setelah `BUSY` kembali `0`.
 
 ### Deskripsi Bit `SPI_CS` (`0x10`)
 - **Bit [7:0]** (`CS_N`): Bitmask kontrol pin Chip Select (Active Low).
@@ -115,7 +117,7 @@ Mengontrol LED onboard Tang Nano 20K dan membaca tombol.
 | :--- | :--- | :--- | :--- | :--- |
 | `0x00` | `GPIO_OUT` | R/W | `0x0000003F` | Bit [5:0] mengontrol status 6 LED onboard (Active Low). |
 | `0x04` | `GPIO_IN` | RO | `0x00000001` | Bit [1]: tombol S2 (PIN 87), `1` = ditekan. Bit [0]: reset internal, selalu `1` saat SoC berjalan, karena S1 (PIN 88) dipakai sebagai reset. |
-| `0x08` | `GPIO_DIR` | R/W | `0x0000003F` | Register penyimpan saja. Nilainya bisa dibaca kembali, tetapi tidak memengaruhi pin LED, yang selalu berupa output. |
+| `0x08` | `GPIO_DIR` | R/W | `0x0000003F` | Output enable per pin LED. Bit `1`: pin mengikuti `GPIO_OUT`. Bit `0`: pin dilepas; pin LED di board ini tidak punya jalur input, jadi LED dipaksa mati (`1`, active low). Membaca `GPIO_OUT` tetap mengembalikan nilai register, bukan nilai pin. |
 
 ---
 

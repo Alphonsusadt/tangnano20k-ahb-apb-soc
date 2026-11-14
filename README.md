@@ -33,17 +33,17 @@ This project is under active development.
 
 | Area | Status |
 | --- | --- |
-| APB SPI master RTL | Directed unit regression passes: 192 checks |
-| APB UART RTL | Directed unit regression passes: 62 checks |
+| APB SPI master RTL | Directed unit regression passes: 303 checks, including `SPI_CR` rewritten mid-byte in every mode and a refused write while busy |
+| APB UART RTL | Directed unit regression passes: 78 checks, including `RX_EN` cleared mid-frame and a refused write while busy |
 | AHB-Lite SRAM | Unit regression passes: 8,855 checks; SoC-level regression passes: 27 checks |
 | AHB-Lite ROM | Unit regression passes in Icarus and Verilator: 64 checks, including a two-cycle ERROR for every write size; six broken copies of the ROM all fail it |
 | AHB interconnect and default slave | Directed unit regression passes: 299 checks |
 | APB write strobes (GPIO, UART, SPI) | Directed regression passes: 62 checks |
-| AHB-to-APB4 bridge | Directed unit regression passes: 1,872 checks |
-| SoC system without a CPU | Regression through the bus to the chip pins passes in Icarus and Verilator: 15,575 checks, including random traffic |
+| AHB-to-APB4 bridge | Directed unit regression passes: 1,933 checks. An APB access takes 2 wait states plus any `PREADY` stall, one fewer than before |
+| SoC system without a CPU | Regression through the bus to the chip pins passes in Icarus and Verilator: 15,578 checks, including random traffic |
 | FPGA self-test image, no CPU | Regression from the board pins passes: 175 checks, including injected faults |
 | OBI-to-AHB adapter | Random regression passes: 1,351,409 checks across five traffic and wait-state profiles |
-| Ibex integration | Firmware runs on Ibex in Verilator simulation: 146 checks from the chip pins, including misaligned store, ROM store, unmapped store, and peripheral `PSLVERR` traps, and an SPI exchange with a model of an external slave |
+| Ibex integration | Firmware runs on Ibex in Verilator simulation: 145 checks from the chip pins, including misaligned store, ROM store, unmapped store, and peripheral `PSLVERR` traps, and an SPI exchange with a model of an external slave |
 | AHB-Lite bus assertions | 9 SVA rules on the CPU bus pass in all 6 Ibex runs under Verilator, including an `ERROR` from the AHB-to-APB bridge; `dv/run_sva_mutants.sh` shows each rule firing on a broken copy of the RTL |
 | APB bus assertions | 5 SVA rules between the bridge and the peripherals pass in the Ibex runs; `dv/run_apb_wait.sh` stalls `PREADY` for 0-3 cycles and checks that the bridge holds the address, and a broken bridge fails |
 | Bare-metal firmware | Self-test, UART echo, and LED firmware runs in simulation and on the board |
@@ -300,10 +300,10 @@ Results with Gowin V1.9.11.03 Education and the firmware image:
 
 | Metric | Result |
 | --- | --- |
-| Logic | 5,305 / 20,736 (5,206 LUT, 99 ALU) |
-| Registers | 2,259 / 15,750 |
+| Logic | 5,385 / 20,736 (5,286 LUT, 99 ALU) |
+| Registers | 2,270 / 15,750 |
 | Block RAM | 17 / 46 |
-| Timing | 27 MHz constraint met, estimated Fmax 34.8 MHz |
+| Timing | 27 MHz constraint met, estimated Fmax 40.4 MHz |
 
 Block RAM use grows with the firmware, because synthesis trims unused ROM contents. Only the clock is constrained; I/O timing is not. The tool also warns (`PR1014`) that the clock from pin 4 uses generic routing.
 
@@ -377,7 +377,7 @@ This project is intended to demonstrate practical understanding of:
 - Assertions cover the AHB-Lite bus between the CPU and the interconnect, and the APB bus behind the bridge. They run in the Ibex simulation and in the APB stall test, and the APB stall test does not run the peripherals themselves.
 - Only the FPGA clock is constrained; I/O timing is not.
 - CPU interrupts and the debug module are not connected.
-- The UART and SPI have no FIFOs, and `GPIO_DIR` does not affect the pins; see [`docs/memory_map.md`](docs/memory_map.md).
+- The UART and SPI have no FIFOs: a write while the transmitter is busy is refused with a bus error. `GPIO_DIR` is an output enable whose released state turns the LED off, because the LED pins have no input path; see [`docs/memory_map.md`](docs/memory_map.md).
 - The SPI signals have not been measured on the board. The STM32 demo shows correct bytes at 500 kHz, not signal timing or margin.
 - The design is an educational FPGA SoC and is not yet a silicon-qualified ASIC implementation.
 
