@@ -29,7 +29,6 @@ module apb_spi (
     assign pready  = 1'b1; // Single-cycle APB response
     // Offsets past the registers answer with an error instead of aliasing onto them.
     wire reg_valid = (paddr[11:5] == 7'h00) && (paddr[4:2] <= 3'b100);
-    assign pslverr = psel && penable && !reg_valid;
 
     // Register offsets are decoded from paddr[4:2] below: 0x00 CR, 0x04 SR, 0x08 TXDATA,
     // 0x0C RXDATA, 0x10 CS. See docs/memory_map.md.
@@ -56,20 +55,34 @@ module apb_spi (
     logic        sck_internal;
     logic        transfer_start;
 
+    // Configuration of the byte in flight, copied from SPI_CR when it starts. A write
+    // to SPI_CR during a transfer is stored and read back, but only applies from the
+    // next byte, so it cannot change the mode, bit order, clock, or CS of this one.
+    logic        xfer_cpha;
+    logic        xfer_cpol;
+    logic        xfer_lsb;
+    logic [7:0]  xfer_div;
+    logic        xfer_auto_cs;
+
     // CPHA=0 samples on leading edges (even index), CPHA=1 on trailing (odd).
-    wire sample_edge = edge_cnt[0] == spi_cpha;
+    wire sample_edge = edge_cnt[0] == xfer_cpha;
     // The first bit is already on MOSI, so CPHA=1 must not shift on edge 0.
     // The last edge never shifts because the byte is complete.
     wire shift_edge  = !sample_edge && (edge_cnt != 4'd0) && (edge_cnt != 4'd15);
+
+    // A byte written while one is in flight is refused with PSLVERR and SPI_TXDATA keeps
+    // the byte in flight. transfer_start covers the cycle before busy rises.
+    wire tx_refuse = pwrite && (paddr[4:2] == 3'b010) && pstrb[0] && (busy || transfer_start);
+    assign pslverr = psel && penable && (!reg_valid || tx_refuse);
 
     // Status bits
     wire sr_busy     = busy;
     wire sr_tx_empty = ~busy;
     wire sr_tx_full  = busy;
-    wire sr_rx_empty = 1'b0;
-    wire sr_rx_full  = 1'b1;
 
-    wire [31:0] sr_val = {27'h0, sr_rx_full, sr_rx_empty, sr_tx_full, sr_tx_empty, sr_busy};
+    // There is no RX FIFO, so the old RX_EMPTY/RX_FULL bits [4:3] were constants. They
+    // are reserved and read 0; SPI_RXDATA is valid once BUSY returns to 0.
+    wire [31:0] sr_val = {29'h0, sr_tx_full, sr_tx_empty, sr_busy};
 
     // APB Register Read
     always_comb begin
@@ -101,7 +114,7 @@ module apb_spi (
                         if (pstrb[1]) cr_reg[12:8] <= pwdata[12:8];
                     end
                     // Without a valid data byte there is nothing to send.
-                    3'b010: if (pstrb[0]) begin
+                    3'b010: if (pstrb[0] && !tx_refuse) begin
                         tx_reg         <= pwdata[7:0];
                         if (spi_en && !busy) begin
                             transfer_start <= 1'b1;
@@ -116,7 +129,7 @@ module apb_spi (
 
     // Chip Select Output
     always_comb begin
-        if (auto_cs && busy) begin
+        if (xfer_auto_cs && busy) begin
             spi_cs_n = 8'hFE; // Assert CS0 active low
         end else begin
             spi_cs_n = cs_reg;
@@ -144,6 +157,11 @@ module apb_spi (
             rx_shift     <= 8'h00;
             rx_reg       <= 8'h00;
             sck_internal <= 1'b0;
+            xfer_cpha    <= 1'b0;
+            xfer_cpol    <= 1'b0;
+            xfer_lsb     <= 1'b0;
+            xfer_div     <= 8'h0;
+            xfer_auto_cs <= 1'b0;
         end else begin
             case (spi_state)
                 IDLE: begin
@@ -158,22 +176,27 @@ module apb_spi (
                         clk_cnt      <= clk_div;
                         spi_state    <= TRANSFER;
                         spi_mosi     <= spi_lsb ? tx_reg[0] : tx_reg[7];
+                        xfer_cpha    <= spi_cpha;
+                        xfer_cpol    <= spi_cpol;
+                        xfer_lsb     <= spi_lsb;
+                        xfer_div     <= clk_div;
+                        xfer_auto_cs <= auto_cs;
                     end
                 end
 
                 TRANSFER: begin
                     if (clk_cnt == 8'd0) begin
-                        clk_cnt <= clk_div;
+                        clk_cnt <= xfer_div;
                         sck_internal <= ~sck_internal;
                         spi_sck      <= ~sck_internal;
                         edge_cnt     <= edge_cnt + 1'b1;
 
                         if (sample_edge) begin
-                            rx_shift <= spi_lsb ? {spi_miso, rx_shift[7:1]} : {rx_shift[6:0], spi_miso};
+                            rx_shift <= xfer_lsb ? {spi_miso, rx_shift[7:1]} : {rx_shift[6:0], spi_miso};
                         end
 
                         if (shift_edge) begin
-                            if (spi_lsb) begin
+                            if (xfer_lsb) begin
                                 tx_shift <= {1'b0, tx_shift[7:1]};
                                 spi_mosi <= tx_shift[1];
                             end else begin
@@ -193,7 +216,7 @@ module apb_spi (
 
                 FINISH: begin
                     if (clk_cnt == 8'd0) begin
-                        spi_sck   <= spi_cpol;
+                        spi_sck   <= xfer_cpol;
                         rx_reg    <= rx_shift;
                         busy      <= 1'b0;
                         spi_state <= IDLE;

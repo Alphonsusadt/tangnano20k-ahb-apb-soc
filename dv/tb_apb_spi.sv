@@ -80,6 +80,25 @@ module tb_apb_spi;
         pwrite  <= 1'b0;
     endtask
 
+    // A write that also returns PSLVERR from the completing ACCESS cycle.
+    task automatic apb_write_resp(input [31:0] addr, input [31:0] data, output logic err);
+        @(posedge pclk);
+        paddr   <= addr;
+        pwdata  <= data;
+        pwrite  <= 1'b1;
+        psel    <= 1'b1;
+        pstrb   <= 4'b1111;
+        penable <= 1'b0;
+        @(posedge pclk);
+        penable <= 1'b1;
+        @(posedge pclk);
+        while (!pready) @(posedge pclk);
+        err = pslverr;
+        psel    <= 1'b0;
+        penable <= 1'b0;
+        pwrite  <= 1'b0;
+    endtask
+
     // --------------------------------------------------------------------------
     // APB Read Task
     // --------------------------------------------------------------------------
@@ -182,6 +201,66 @@ module tb_apb_spi;
         check(spi_sck === cpol, {tag, ": SCK idle level after transfer"});
     endtask
 
+    // Starts a transfer, then rewrites SPI_CR with a different mode, bit order, clock
+    // divider, and AUTO_CS while the byte is still on the wire. The byte in flight
+    // must finish with the configuration it started with; the new value is read back
+    // and applies from the next transfer.
+    task automatic run_transfer_cr_change(input logic cpol, input logic cpha,
+                                          input logic lsb, input logic [7:0] tx);
+        logic [31:0] status;
+        logic [31:0] rx;
+        logic [31:0] cr;
+        logic [31:0] cr_new;
+        string       tag;
+
+        cr     = 32'h1 | (32'(cpha) << 1) | (32'(cpol) << 2) | (32'(lsb) << 3)
+                       | (32'd4 << 4) | (32'd1 << 12);
+        cr_new = 32'h1 | (32'(!cpha) << 1) | (32'(!cpol) << 2) | (32'(!lsb) << 3)
+                       | (32'd1 << 4);
+        tag = $sformatf("CR change during CPOL=%0d CPHA=%0d LSB=%0d TX=%02h", cpol, cpha, lsb, tx);
+
+        apb_write(ADDR_SPI_CR, cr);
+        repeat (3) @(posedge pclk);
+
+        mon_cpha   = cpha;
+        mon_lsb    = lsb;
+        slave_rx   = 8'h00;
+        edge_count = 0;
+        cs_errors  = 0;
+        monitor_en = 1'b1;
+
+        apb_write(ADDR_SPI_TXDATA, {24'h0, tx});
+        repeat (12) @(posedge pclk);
+        check(u_dut.busy === 1'b1, {tag, ": still busy when CR is rewritten"});
+        apb_write(ADDR_SPI_CR, cr_new);
+
+        status = 32'h1;
+        while (status[0] == 1'b1) begin
+            #50;
+            apb_read(ADDR_SPI_SR, status);
+        end
+        monitor_en = 1'b0;
+        apb_read(ADDR_SPI_RXDATA, rx);
+
+        check(edge_count == 16,
+              $sformatf("%s: expected 16 SCK edges, got %0d", tag, edge_count));
+        check(slave_rx === tx,
+              $sformatf("%s: slave expected %02h, got %02h", tag, tx, slave_rx));
+        check(rx[7:0] === ~tx,
+              $sformatf("%s: master expected %02h, got %02h", tag, ~tx, rx[7:0]));
+        check(cs_errors == 0,
+              $sformatf("%s: CS high on %0d SCK edges", tag, cs_errors));
+        apb_read(ADDR_SPI_CR, rx);
+        check(rx === cr_new, {tag, ": the new CR is read back"});
+        repeat (3) @(posedge pclk);
+        check(spi_sck === !cpol, {tag, ": SCK idles at the new CPOL afterwards"});
+
+        // The next transfer uses the new configuration, with manual CS.
+        apb_write(ADDR_SPI_CS, 32'h0000_00FE);
+        run_transfer(!cpol, !cpha, !lsb, tx ^ 8'hFF);
+        apb_write(ADDR_SPI_CS, 32'h0000_00FF);
+    endtask
+
     // --------------------------------------------------------------------------
     // Main Test Stimulus
     // Sequence: reset -> read status -> configure mode 0 -> write TXDATA
@@ -217,6 +296,8 @@ module tb_apb_spi;
         // 1. Read default status
         apb_read(ADDR_SPI_SR, read_val);
         $display("[TB_APB_SPI] Read SPI_SR = 0x%08X (Expected TX_EMPTY=1)", read_val);
+        // Only BUSY, TX_EMPTY, and TX_FULL carry information; bits [31:3] read 0.
+        check(read_val === 32'h0000_0002, $sformatf("SPI_SR idle is 0x02, got %08h", read_val));
 
         // 2. Configure SPI Control Register:
         //    Bit 0 = 1 (SPI_EN)
@@ -276,6 +357,43 @@ module tb_apb_spi;
                 run_transfer(mode[1], mode[0], order[0], 8'h81);
                 run_transfer(mode[1], mode[0], order[0], 8'h00);
             end
+        end
+
+        // 8. SPI_CR rewritten in the middle of a byte, in every mode and bit order.
+        for (int mode = 0; mode < 4; mode++) begin
+            for (int order = 0; order < 2; order++) begin
+                run_transfer_cr_change(mode[1], mode[0], order[0], 8'h3C);
+            end
+        end
+
+        // 9. A write to SPI_TXDATA while a byte is in flight is refused with PSLVERR,
+        //    the byte in flight is not changed, and no second transfer starts.
+        begin
+            logic        err;
+            logic [31:0] status;
+            apb_write(ADDR_SPI_CR, 32'h0000_1041);
+            repeat (3) @(posedge pclk);
+            mon_cpha = 1'b0; mon_lsb = 1'b0; slave_rx = 8'h00; edge_count = 0;
+            cs_errors = 0; monitor_en = 1'b1;
+            apb_write(ADDR_SPI_TXDATA, 32'h0000_00D2);
+            repeat (6) @(posedge pclk);
+            apb_read(ADDR_SPI_SR, status);
+            check(status === 32'h0000_0005, $sformatf("SPI_SR busy is 0x05, got %08h", status));
+            apb_write_resp(ADDR_SPI_TXDATA, 32'h0000_0017, err);
+            check(err === 1'b1, "write to SPI_TXDATA while busy answers PSLVERR");
+            status = 32'h1;
+            while (status[0] == 1'b1) begin
+                #50;
+                apb_read(ADDR_SPI_SR, status);
+            end
+            repeat (40) @(posedge pclk);
+            monitor_en = 1'b0;
+            check(edge_count == 16, $sformatf("refused write: one byte only, got %0d edges", edge_count));
+            check(slave_rx === 8'hD2, $sformatf("refused write: slave got %02h", slave_rx));
+            apb_read(ADDR_SPI_TXDATA, status);
+            check(status[7:0] === 8'hD2, "refused write: SPI_TXDATA keeps the byte in flight");
+            apb_write_resp(ADDR_SPI_TXDATA, 32'h0000_0017, err);
+            check(err === 1'b0, "write to SPI_TXDATA when idle answers OKAY");
         end
 
         #500;
