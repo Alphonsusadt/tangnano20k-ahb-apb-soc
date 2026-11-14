@@ -36,6 +36,7 @@ This project is under active development.
 | APB SPI master RTL | Directed unit regression passes: 192 checks |
 | APB UART RTL | Directed unit regression passes: 62 checks |
 | AHB-Lite SRAM | Unit regression passes: 8,855 checks; SoC-level regression passes: 27 checks |
+| AHB-Lite ROM | Unit regression passes in Icarus and Verilator: 64 checks, including a two-cycle ERROR for every write size; six broken copies of the ROM all fail it |
 | AHB interconnect and default slave | Directed unit regression passes: 299 checks |
 | APB write strobes (GPIO, UART, SPI) | Directed regression passes: 62 checks |
 | AHB-to-APB4 bridge | Directed unit regression passes: 1,872 checks |
@@ -94,6 +95,7 @@ tangnano-soc-portfolio/
 |   `-- ahb_bridge_simulation.md
 |-- dv/                           # Simulation testbenches
 |   |-- tb_ahb_interconnect.sv
+|   |-- tb_ahb_rom.sv
 |   |-- tb_ahb_sram.sv
 |   |-- tb_ahb_to_apb_bridge.sv
 |   |-- tb_apb_pstrb.sv
@@ -105,7 +107,8 @@ tangnano-soc-portfolio/
 |   |-- run_ibex_sim.sh
 |   |-- run_regression.sh         # Runs every self-checking test
 |   |-- run_sva_mutants.sh        # Shows that each assertion can fail, slow
-|   |-- sva/                      # AHB-Lite assertions, bound to soc_top
+|   |-- sva/                      # AHB-Lite and APB assertions, bound to soc_top
+|   |-- lint_waiver.vlt           # Per-signal lint waivers used in CI
 |   |-- tb_soc_ibex.sv
 |   |-- tb_soc_system.sv
 |   `-- tb_soc_top.sv
@@ -120,10 +123,11 @@ tangnano-soc-portfolio/
 |   |-- core/                     # Ibex wrapper with the bus adapter, and FPGA clock gate
 |   |-- fpga/                     # Board wrapper and self-test AHB master
 |   |-- interconnect/             # AHB decoder, AHB-to-APB bridge, and OBI-to-AHB adapter
-|   |-- memory/                   # AHB-Lite SRAM with byte and halfword writes
+|   |-- memory/                   # AHB-Lite ROM and SRAM with byte and halfword writes
 |   |-- peripherals/              # APB UART, SPI, and GPIO
+|   |-- soc_pkg.sv                # Memory map: base addresses and decode helpers
 |   `-- soc_top.sv                # SoC top level
-|-- sw/                           # Bare-metal firmware, linker script, compiled image, and STM32 SPI slave sketch
+|-- sw/                           # Bare-metal firmware, soc_map.h, linker script, compiled image, and STM32 SPI slave sketch
 |-- third_party/ibex/             # Unmodified lowRISC Ibex source, Apache 2.0
 `-- README.md
 ```
@@ -231,13 +235,16 @@ vvp work/sim_pstrb
 
 `tb_ahb_sram` tests the SRAM alone, with directed cases, a walking-one address
 test, and a random pipeline checked against a reference model. `tb_soc_sram` runs SRAM transfers through the
-real interconnect and bridge by forcing the undriven CPU bus, with the CPU left
-out (`USE_IBEX` is 0).
+real interconnect and bridge through the external master port `ext_h*`, with the
+CPU left out (`USE_IBEX` is 0). `tb_ahb_rom` tests the ROM alone.
 
 ```bash
 mkdir -p work
 iverilog -g2012 -s tb_ahb_sram -o work/sim_sram dv/tb_ahb_sram.sv rtl/memory/ahb_sram.sv
 vvp work/sim_sram
+
+iverilog -g2012 -s tb_ahb_rom -o work/sim_rom dv/tb_ahb_rom.sv rtl/memory/ahb_rom.sv
+vvp work/sim_rom
 
 iverilog -g2012 -s tb_soc_sram -o work/sim_soc_sram \
   dv/tb_soc_sram.sv \
@@ -293,10 +300,10 @@ Results with Gowin V1.9.11.03 Education and the firmware image:
 
 | Metric | Result |
 | --- | --- |
-| Logic | 5,321 / 20,736 (5,222 LUT, 99 ALU) |
+| Logic | 5,305 / 20,736 (5,206 LUT, 99 ALU) |
 | Registers | 2,259 / 15,750 |
 | Block RAM | 17 / 46 |
-| Timing | 27 MHz constraint met, estimated Fmax 32.4 MHz |
+| Timing | 27 MHz constraint met, estimated Fmax 34.8 MHz |
 
 Block RAM use grows with the firmware, because synthesis trims unused ROM contents. Only the clock is constrained; I/O timing is not. The tool also warns (`PR1014`) that the clock from pin 4 uses generic routing.
 
@@ -327,7 +334,7 @@ Setting `USE_IBEX` to 0 and `BOOT_HEX_FILE` to `../selftest_rom.hex` in `fpga_to
 ```bash
 iverilog -g2012 -s tb_fpga_top -o work/sim_fpga \
   dv/tb_fpga_top.sv rtl/fpga/fpga_top.sv rtl/fpga/ahb_selftest_master.sv \
-  rtl/soc_pkg.sv rtl/soc_top.sv rtl/memory/ahb_sram.sv rtl/interconnect/*.sv rtl/peripherals/*.sv
+  rtl/soc_pkg.sv rtl/soc_top.sv rtl/memory/ahb_rom.sv rtl/memory/ahb_sram.sv rtl/interconnect/*.sv rtl/peripherals/*.sv
 vvp work/sim_fpga
 ```
 

@@ -1,6 +1,8 @@
 /* Startup code for Ibex: the vector table, the reset entry, and C runtime setup. */
 
-    .equ UART_DATA, 0x40000000
+#include "soc_map.h"
+
+    .equ UART_DATA, UART_BASE
 
     /* Ibex takes exceptions at boot_addr, interrupts at boot_addr + 4 * cause,
      * and resets at boot_addr + 0x80.

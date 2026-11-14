@@ -72,6 +72,7 @@ SOURCES=(
     rtl/core/ibex_ahb_cpu.sv
     rtl/interconnect/obi_to_ahb_adapter.sv
     rtl/soc_top.sv
+    rtl/memory/ahb_rom.sv
     rtl/memory/ahb_sram.sv
     rtl/interconnect/ahb_interconnect.sv
     rtl/interconnect/ahb_to_apb_bridge.sv

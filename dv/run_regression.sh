@@ -10,13 +10,32 @@ set -u
 
 PATH="$HOME/.local/bin:$PATH"
 PERIPHERALS="rtl/peripherals/apb_gpio.sv rtl/peripherals/apb_spi.sv rtl/peripherals/apb_uart.sv"
-SOC="rtl/soc_pkg.sv rtl/soc_top.sv rtl/memory/ahb_sram.sv rtl/interconnect/ahb_interconnect.sv rtl/interconnect/ahb_to_apb_bridge.sv $PERIPHERALS"
+SOC="rtl/soc_pkg.sv rtl/soc_top.sv rtl/memory/ahb_rom.sv rtl/memory/ahb_sram.sv rtl/interconnect/ahb_interconnect.sv rtl/interconnect/ahb_to_apb_bridge.sv $PERIPHERALS"
 
 passed=0
 failed=0
 skipped=0
 
 mkdir -p work
+
+# The firmware and the RTL must agree on every base address. This needs no simulator.
+map_bad=""
+for name in ROM SRAM UART SPI GPIO TIMER SYSCTRL; do
+    pkg=$(grep -E "localparam logic \[31:0\] ${name}_BASE " rtl/soc_pkg.sv |
+          sed -E "s/.*32'h([0-9A-Fa-f_]+).*/\1/" | tr -d '_' | tr 'a-f' 'A-F')
+    hdr=$(grep -E "^#define ${name}_BASE " sw/soc_map.h | awk '{print $3}' |
+          sed 's/^0x//' | tr 'a-f' 'A-F')
+    if [ -z "$pkg" ] || [ "$pkg" != "$hdr" ]; then
+        map_bad="$map_bad ${name}(rtl=${pkg:-none},sw=${hdr:-none})"
+    fi
+done
+if [ -z "$map_bad" ]; then
+    printf 'PASS  %-24s %s\n' "memory map rtl == sw" "7 base addresses match"
+    passed=$((passed + 1))
+else
+    printf 'FAIL  %-24s%s\n' "memory map rtl == sw" "$map_bad"
+    failed=$((failed + 1))
+fi
 
 # Prints PASS only if the run exited cleanly and each expected RESULT line reports
 # 0 failures. A missing RESULT line is a failure, because the test may have died early.
@@ -52,6 +71,7 @@ if command -v iverilog > /dev/null && command -v vvp > /dev/null; then
     run_icarus tb_apb_uart          dv/tb_apb_uart.sv rtl/peripherals/apb_uart.sv
     run_icarus tb_apb_pstrb         dv/tb_apb_pstrb.sv $PERIPHERALS
     run_icarus tb_ahb_sram          dv/tb_ahb_sram.sv rtl/memory/ahb_sram.sv
+    run_icarus tb_ahb_rom           dv/tb_ahb_rom.sv rtl/memory/ahb_rom.sv
     run_icarus tb_ahb_interconnect  dv/tb_ahb_interconnect.sv rtl/soc_pkg.sv rtl/interconnect/ahb_interconnect.sv
     run_icarus tb_ahb_to_apb_bridge dv/tb_ahb_to_apb_bridge.sv rtl/soc_pkg.sv rtl/interconnect/ahb_to_apb_bridge.sv
     run_icarus tb_obi_to_ahb        dv/tb_obi_to_ahb.sv rtl/interconnect/obi_to_ahb_adapter.sv
@@ -60,7 +80,7 @@ if command -v iverilog > /dev/null && command -v vvp > /dev/null; then
     run_icarus tb_fpga_top          dv/tb_fpga_top.sv rtl/fpga/fpga_top.sv rtl/fpga/ahb_selftest_master.sv $SOC
 else
     echo "SKIP  Icarus tests             iverilog or vvp not found"
-    skipped=$((skipped + 10))
+    skipped=$((skipped + 11))
 fi
 
 if command -v verilator > /dev/null && command -v riscv64-unknown-elf-gcc > /dev/null; then

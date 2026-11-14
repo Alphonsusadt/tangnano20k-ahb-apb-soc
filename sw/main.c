@@ -6,26 +6,27 @@
  * ============================================================================== */
 
 #include <stdint.h>
+#include "soc_map.h"
 
-#define REG32(addr)     (*(volatile uint32_t *)(addr))
+#define REG32(addr)     (*(volatile uint32_t *)(uintptr_t)(addr))
 
-#define UART_DATA       REG32(0x40000000U)
-#define UART_STATUS     REG32(0x40000004U)
-#define UART_BAUD       REG32(0x4000000CU)
+#define UART_DATA       REG32(UART_BASE + 0x00U)
+#define UART_STATUS     REG32(UART_BASE + 0x04U)
+#define UART_BAUD       REG32(UART_BASE + 0x0CU)
 #define UART_RX_VALID   (1U << 0)
 #define UART_TX_EMPTY   (1U << 1)
 
-#define SPI_CR          REG32(0x40001000U)
-#define SPI_SR          REG32(0x40001004U)
-#define SPI_TXDATA      REG32(0x40001008U)
-#define SPI_RXDATA      REG32(0x4000100CU)
+#define SPI_CR          REG32(SPI_BASE + 0x00U)
+#define SPI_SR          REG32(SPI_BASE + 0x04U)
+#define SPI_TXDATA      REG32(SPI_BASE + 0x08U)
+#define SPI_RXDATA      REG32(SPI_BASE + 0x0CU)
 #define SPI_SR_BUSY     (1U << 0)
 #define SPI_CR_ENABLE   (1U << 0)
 #define SPI_CR_DIV(n)   ((uint32_t)(n) << 4)
 #define SPI_CR_AUTO_CS  (1U << 12)
 
-#define GPIO_OUT        REG32(0x40002000U)
-#define GPIO_IN         REG32(0x40002004U)
+#define GPIO_OUT        REG32(GPIO_BASE + 0x00U)
+#define GPIO_IN         REG32(GPIO_BASE + 0x04U)
 #define GPIO_IN_S2      (1U << 1)
 
 /* The heartbeat toggles every 2^HEARTBEAT_BIT cycles. Simulation overrides this. */
@@ -181,20 +182,20 @@ int main(void) {
 #ifdef FORCE_MISALIGNED_STORE
     /* A direct sw, because -mstrict-align turns a C store into safe byte stores.
      * The adapter must refuse it, so this store traps and nothing after it runs. */
-    __asm__ volatile ("sw %0, 1(%1)" : : "r"(0xFFFFFFFFU), "r"(0x20000100U));
+    __asm__ volatile ("sw %0, 1(%1)" : : "r"(0xFFFFFFFFU), "r"(SRAM_BASE + 0x100U));
 #endif
 #ifdef FORCE_ROM_STORE
     /* The ROM answers this store with ERROR, so it traps and nothing after it runs. */
-    __asm__ volatile ("sw %0, 0(%1)" : : "r"(0xFFFFFFFFU), "r"(0x00000100U));
+    __asm__ volatile ("sw %0, 0(%1)" : : "r"(0xFFFFFFFFU), "r"(ROM_BASE + 0x100U));
 #endif
 #ifdef FORCE_UNMAPPED_STORE
     /* The default slave answers this store with ERROR, so it traps and nothing after it runs. */
-    __asm__ volatile ("sw %0, 0(%1)" : : "r"(0xFFFFFFFFU), "r"(0x60000000U));
+    __asm__ volatile ("sw %0, 0(%1)" : : "r"(0xFFFFFFFFU), "r"(UNMAPPED_ADDR));
 #endif
 #ifdef FORCE_APB_SLVERR
     /* UART + 0x010 is past the last UART register, so the UART answers PSLVERR and
      * the bridge turns it into ERROR. The store traps and nothing after it runs. */
-    __asm__ volatile ("sw %0, 0(%1)" : : "r"(0xFFFFFFFFU), "r"(0x40000010U));
+    __asm__ volatile ("sw %0, 0(%1)" : : "r"(0xFFFFFFFFU), "r"(UART_BASE + 0x010U));
 #endif
 
     uint32_t failed = run_self_test();

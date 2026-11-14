@@ -20,7 +20,7 @@ $(NAME).hex: $(NAME).bin
 $(NAME).bin: $(NAME).elf
 	$(OBJCOPY) -O binary $< $@
 
-$(NAME).elf: crt0.S main.c link.ld
+$(NAME).elf: crt0.S main.c link.ld soc_map.h
 	$(CC) $(CFLAGS) -T link.ld -o $@ crt0.S main.c
 	$(SIZE) $@
 
