@@ -14,22 +14,24 @@ module tb_ahb_to_apb_bridge;
     wire hready, hresp, pwrite, penable;
     wire [2:0] pprot;
     wire [3:0] pstrb;
-    wire psel_uart, psel_spi, psel_gpio;
-    wire [2:0] selects = {psel_gpio, psel_spi, psel_uart};
+    wire psel_uart, psel_spi, psel_gpio, psel_timer;
+    wire [3:0] selects = {psel_timer, psel_gpio, psel_spi, psel_uart};
     integer errors = 0, checks = 0, completed = 0;
     integer access_cycles = 0, wait_cycles = 0;
     reg ready_in_setup = 0;
-    reg [2:0] slave_errors = 0;
+    reg [3:0] slave_errors = 0;
     wire ready = (penable && (access_cycles >= wait_cycles)) ||
                  (ready_in_setup && !penable);
     // Non-selected slaves are deliberately ready and may signal errors.
     wire uart_ready = psel_uart ? ready : 1'b1;
     wire spi_ready = psel_spi ? ready : 1'b1;
     wire gpio_ready = psel_gpio ? ready : 1'b1;
+    wire timer_ready = psel_timer ? ready : 1'b1;
     // Data is meaningful only on the completion cycle.
     wire [31:0] uart_data = (psel_uart && penable && ready) ? 32'h11223344 : 32'hdead0000;
     wire [31:0] spi_data = (psel_spi && penable && ready) ? 32'h55667788 : 32'hdead1111;
     wire [31:0] gpio_data = (psel_gpio && penable && ready) ? 32'h99aabbcc : 32'hdead2222;
+    wire [31:0] timer_data = (psel_timer && penable && ready) ? 32'h13572468 : 32'hdead3333;
     // Another AHB slave can hold global HREADY low while this bridge is idle.
     reg other_stall = 0;
     wire hready_in = hready && !other_stall;
@@ -40,10 +42,11 @@ module tb_ahb_to_apb_bridge;
         .hready(hready), .hresp(hresp), .paddr(paddr),
         .pwdata(pwdata), .pwrite(pwrite), .pprot(pprot),
         .pstrb(pstrb), .penable(penable),
-        .psel_uart(psel_uart), .psel_spi(psel_spi), .psel_gpio(psel_gpio),
+        .psel_uart(psel_uart), .psel_spi(psel_spi), .psel_gpio(psel_gpio), .psel_timer(psel_timer),
         .prdata_uart(uart_data), .pready_uart(uart_ready), .pslverr_uart(slave_errors[0]),
         .prdata_spi(spi_data), .pready_spi(spi_ready), .pslverr_spi(slave_errors[1]),
-        .prdata_gpio(gpio_data), .pready_gpio(gpio_ready), .pslverr_gpio(slave_errors[2])
+        .prdata_gpio(gpio_data), .pready_gpio(gpio_ready), .pslverr_gpio(slave_errors[2]),
+        .prdata_timer(timer_data), .pready_timer(timer_ready), .pslverr_timer(slave_errors[3])
     );
 
     // Count actual APB completions at the sampling edge, before NBA updates.
@@ -80,14 +83,14 @@ module tb_ahb_to_apb_bridge;
 
     // Monitor the bus at sampling edges, including SETUP -> ACCESS stability.
     reg previous_setup = 0, previous_wait = 0;
-    reg [74:0] saved_controls;
-    wire [74:0] controls = {selects, paddr, pwdata, pwrite, pstrb, pprot};
+    reg [75:0] saved_controls;
+    wire [75:0] controls = {selects, paddr, pwdata, pwrite, pstrb, pprot};
     always @(posedge hclk) begin
         if (!hreset_n) begin
             previous_setup = 0;
             previous_wait = 0;
         end else begin
-            check((selects == 0) || (selects == 1) || (selects == 2) || (selects == 4),
+            check((selects == 0) || (selects == 1) || (selects == 2) || (selects == 4) || (selects == 8),
                   "peripheral selection is one-hot");
             check(!penable || (|selects), "PENABLE requires a selected peripheral");
             if (previous_setup || previous_wait) begin
@@ -108,7 +111,7 @@ module tb_ahb_to_apb_bridge;
         input logic slave_error, input logic local_error
     );
         integer cycles, before_count, error_cycles;
-        reg [2:0] target;
+        reg [3:0] target;
         reg [3:0] strobes;
         reg [31:0] expected_read;
         reg saw_setup;
@@ -118,6 +121,7 @@ module tb_ahb_to_apb_bridge;
                 20'h40000: begin target = 1; expected_read = 32'h11223344; end
                 20'h40001: begin target = 2; expected_read = 32'h55667788; end
                 20'h40002: begin target = 4; expected_read = 32'h99aabbcc; end
+                20'h40003: begin target = 8; expected_read = 32'h13572468; end
                 default: begin target = 0; expected_read = 0; end
             endcase
             strobes = !writing ? 0 : size == 0 ? (4'b0001 << address[1:0]) :
@@ -127,7 +131,7 @@ module tb_ahb_to_apb_bridge;
             before_count = completed;
             wait_cycles = waits;
             // Force errors on unselected slaves to check response isolation.
-            slave_errors = slave_error ? 3'b111 : ~target;
+            slave_errors = slave_error ? 4'b1111 : ~target;
             hsel = 1; htrans = trans; haddr = address; hwrite = writing;
             hsize = size; hwdata = 32'hdeadbeef;
             // The first data-phase cycle is already APB SETUP, or the first ERROR cycle
@@ -255,7 +259,7 @@ module tb_ahb_to_apb_bridge;
         check(selects == 0, "unselected NONSEQ ignored");
 
         // Consecutive requests without reset; next address is accepted at response edge.
-        for (port_index = 0; port_index < 3; port_index = port_index + 1) begin
+        for (port_index = 0; port_index < 4; port_index = port_index + 1) begin
             for (i = 0; i < 2; i = i + 1) begin
                 ready_in_setup = i;
                 transfer(32'h40000004 + port_index * 4096, 1, 32'h12345678, 2, 2, i*3, 0, 0);
@@ -274,7 +278,7 @@ module tb_ahb_to_apb_bridge;
             transfer(32'h40000fff + port_index*4096, 1, 32'hff000000, 0, 2, 0, 0, 0);
         end
         // Decode misses, unsupported size, and misalignment must not select APB.
-        transfer(32'h40003000, 1, 0, 2, 2, 0, 0, 1);
+        transfer(32'h40005000, 1, 0, 2, 2, 0, 0, 1);
         transfer(32'h50001000, 0, 0, 2, 2, 0, 0, 1);
         transfer(32'h40001001, 1, 0, 1, 2, 0, 0, 1);
         transfer(32'h40001002, 0, 0, 2, 2, 0, 0, 1);
@@ -285,7 +289,7 @@ module tb_ahb_to_apb_bridge;
             transfer(32'h40001000, 0, 0, 2, 2, 0, 0, 0);
         end
         waiting_behind_stall;
-        @(negedge hclk); slave_errors = 7; hsel = 0; htrans = 0;
+        @(negedge hclk); slave_errors = 15; hsel = 0; htrans = 0;
         repeat (3) @(negedge hclk);
         check(!hresp && hready && selects == 0, "idle ignores stale peripheral errors");
         $display("RESULT: %0d checks, %0d failures", checks, errors);

@@ -29,7 +29,7 @@ module tb_apb_wait;
     wire        pwrite, penable;
     wire [2:0]  pprot;
     wire [3:0]  pstrb;
-    wire        psel_uart, psel_spi, psel_gpio;
+    wire        psel_uart, psel_spi, psel_gpio, psel_timer;
     wire [31:0] prdata_gpio;
     wire        pready_gpio, pslverr_gpio;
 
@@ -63,7 +63,11 @@ module tb_apb_wait;
         .pslverr_spi  (1'b0),
         .prdata_gpio  (prdata_gpio),
         .pready_gpio  (pready_gpio),
-        .pslverr_gpio (pslverr_gpio)
+        .pslverr_gpio (pslverr_gpio),
+        .psel_timer   (psel_timer),
+        .prdata_timer (32'h0),
+        .pready_timer (1'b1),
+        .pslverr_timer(1'b0)
     );
 
     // A peripheral with one 32-bit register. Each access takes 0, 2, 1, or 3 extra
@@ -100,9 +104,11 @@ module tb_apb_wait;
         .psel_uart   (psel_uart),
         .psel_spi    (psel_spi),
         .psel_gpio   (psel_gpio),
+        .psel_timer  (psel_timer),
         .pready_uart (1'b1),
         .pready_spi  (1'b1),
         .pready_gpio (pready_gpio),
+        .pready_timer(1'b1),
         .pwrite      (pwrite),
         .paddr       (paddr),
         .pwdata      (pwdata),

@@ -191,7 +191,7 @@ module tb_ahb_interconnect;
         check_decode(32'h3FFF_FFFC, NO_SLAVE);
         check_decode(32'h4000_0000, BRIDGE);
         check_decode(32'h4000_2FFC, BRIDGE);
-        check_decode(32'h4000_3000, BRIDGE); // Reserved: the bridge answers ERROR.
+        check_decode(32'h4000_5000, BRIDGE); // Reserved: the bridge answers ERROR.
         check_decode(32'h4FFF_FFFC, BRIDGE);
         check_decode(32'h5000_0000, NO_SLAVE);
         check_decode(32'hFFFF_FFFC, NO_SLAVE);

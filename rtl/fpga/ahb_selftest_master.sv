@@ -70,7 +70,7 @@ module ahb_selftest_master #(
             5'd9:  step_rom = {OP_READ,      SIZE_WORD, SRAM_BASE,            32'hDEAD_AAEF, ALL};
             // ERROR from each source: default slave, bridge, and peripheral.
             5'd10: step_rom = {OP_READ_ERR,  SIZE_WORD, 32'h1000_0000,        32'h0,         ALL};
-            5'd11: step_rom = {OP_READ_ERR,  SIZE_WORD, 32'h4000_3000,        32'h0,         ALL};
+            5'd11: step_rom = {OP_READ_ERR,  SIZE_WORD, 32'h4000_5000,        32'h0,         ALL};
             5'd12: step_rom = {OP_READ_ERR,  SIZE_WORD, UART_DATA + 32'h10,   32'h0,         ALL};
             // APB reads and writes reach the registers.
             5'd13: step_rom = {OP_READ,      SIZE_WORD, UART_BAUD,            32'h0000_00EA, ALL};

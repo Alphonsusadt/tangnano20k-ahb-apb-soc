@@ -9,7 +9,7 @@
 set -u
 
 PATH="$HOME/.local/bin:$PATH"
-PERIPHERALS="rtl/peripherals/apb_gpio.sv rtl/peripherals/apb_spi.sv rtl/peripherals/apb_uart.sv"
+PERIPHERALS="rtl/peripherals/apb_gpio.sv rtl/peripherals/apb_spi.sv rtl/peripherals/apb_uart.sv rtl/peripherals/apb_timer.sv"
 SOC="rtl/soc_pkg.sv rtl/soc_top.sv rtl/memory/ahb_rom.sv rtl/memory/ahb_sram.sv rtl/interconnect/ahb_interconnect.sv rtl/interconnect/ahb_to_apb_bridge.sv $PERIPHERALS"
 
 passed=0
@@ -69,6 +69,7 @@ run_icarus() {
 if command -v iverilog > /dev/null && command -v vvp > /dev/null; then
     run_icarus tb_apb_spi           dv/tb_apb_spi.sv rtl/peripherals/apb_spi.sv
     run_icarus tb_apb_uart          dv/tb_apb_uart.sv rtl/peripherals/apb_uart.sv
+    run_icarus tb_apb_timer         dv/tb_apb_timer.sv rtl/peripherals/apb_timer.sv
     run_icarus tb_apb_pstrb         dv/tb_apb_pstrb.sv $PERIPHERALS
     run_icarus tb_ahb_sram          dv/tb_ahb_sram.sv rtl/memory/ahb_sram.sv
     run_icarus tb_ahb_rom           dv/tb_ahb_rom.sv rtl/memory/ahb_rom.sv
@@ -80,7 +81,7 @@ if command -v iverilog > /dev/null && command -v vvp > /dev/null; then
     run_icarus tb_fpga_top          dv/tb_fpga_top.sv rtl/fpga/fpga_top.sv rtl/fpga/ahb_selftest_master.sv $SOC
 else
     echo "SKIP  Icarus tests             iverilog or vvp not found"
-    skipped=$((skipped + 11))
+    skipped=$((skipped + 12))
 fi
 
 if command -v verilator > /dev/null && command -v riscv64-unknown-elf-gcc > /dev/null; then

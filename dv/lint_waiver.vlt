@@ -17,6 +17,7 @@ lint_off -rule UNUSEDSIGNAL -file "*rtl/peripherals/apb_spi.sv" -match "*'pstrb'
 lint_off -rule UNUSEDSIGNAL -file "*rtl/peripherals/apb_uart.sv" -match "*'paddr'*"
 lint_off -rule UNUSEDSIGNAL -file "*rtl/peripherals/apb_uart.sv" -match "*'pwdata'*"
 lint_off -rule UNUSEDSIGNAL -file "*rtl/peripherals/apb_uart.sv" -match "*'pstrb'*"
+lint_off -rule UNUSEDSIGNAL -file "*rtl/peripherals/apb_timer.sv" -match "*'paddr'*"
 
 // Bit 0 of HTRANS is always 1 for NONSEQ and 0 for IDLE in this bus, so only bit 1 is used.
 lint_off -rule UNUSEDSIGNAL -file "*rtl/interconnect/ahb_to_apb_bridge.sv" -match "*'htrans'*"
@@ -33,11 +34,13 @@ lint_off -rule UNUSEDSIGNAL -file "*rtl/soc_top.sv" -match "*'imem_*'*"
 lint_off -rule UNUSEDSIGNAL -file "*rtl/soc_top.sv" -match "*'cpu_hrdata'*"
 lint_off -rule UNUSEDSIGNAL -file "*rtl/soc_top.sv" -match "*'cpu_hresp'*"
 
-// Known gap, not a bug in this file: the UART interrupt is not connected to the CPU yet.
-// It is removed from this list when F4 connects it.
-lint_off -rule UNUSEDSIGNAL -file "*rtl/soc_top.sv" -match "*'uart_irq'*"
 
 // soc_pkg: sizes and the timer/sysctrl bases are documentation until F4/F6 use them, and
 // the decode functions compare only the block-select bits of an address by design.
 lint_off -rule UNUSEDPARAM  -file "*rtl/soc_pkg.sv"
 lint_off -rule UNUSEDSIGNAL -file "*rtl/soc_pkg.sv"
+
+// Lint elaborates soc_top without a CPU (USE_IBEX = 0), where the interrupt lines have
+// no consumer. With Ibex they drive irq_timer_i and irq_fast_i[0].
+lint_off -rule UNUSEDSIGNAL -file "*rtl/soc_top.sv" -match "*'irq_timer'*"
+lint_off -rule UNUSEDSIGNAL -file "*rtl/soc_top.sv" -match "*'uart_irq'*"

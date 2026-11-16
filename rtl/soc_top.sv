@@ -56,6 +56,10 @@ module soc_top #(
     wire        cpu_hready;
     wire        cpu_hresp;
 
+    // Interrupts to the CPU: both are levels that their source clears.
+    wire        irq_timer;  // apb_timer: mtime >= mtimecmp while enabled
+    wire        uart_irq;   // apb_uart: RX_VALID or TX_EMPTY, each with its enable
+
     generate
         if (USE_SELFTEST_MASTER != 0) begin : g_selftest
             ahb_selftest_master #(
@@ -83,7 +87,9 @@ module soc_top #(
                 .hwdata   (cpu_hwdata),
                 .hrdata   (cpu_hrdata),
                 .hready   (cpu_hready),
-                .hresp    (cpu_hresp)
+                .hresp    (cpu_hresp),
+                .irq_timer (irq_timer),
+                .irq_uart  (uart_irq)
             );
         end else begin : g_ext
             assign cpu_haddr  = ext_haddr;
@@ -244,6 +250,9 @@ module soc_top #(
     wire        psel_gpio, pready_gpio, pslverr_gpio;
     wire [31:0] prdata_gpio;
 
+    wire        psel_timer, pready_timer, pslverr_timer;
+    wire [31:0] prdata_timer;
+
     ahb_to_apb_bridge u_bridge (
         .hclk         (clk),
         .hreset_n     (rst_sys_n),
@@ -279,11 +288,15 @@ module soc_top #(
         .psel_gpio    (psel_gpio),
         .prdata_gpio  (prdata_gpio),
         .pready_gpio  (pready_gpio),
-        .pslverr_gpio (pslverr_gpio)
+        .pslverr_gpio (pslverr_gpio),
+
+        .psel_timer    (psel_timer),
+        .prdata_timer  (prdata_timer),
+        .pready_timer  (pready_timer),
+        .pslverr_timer (pslverr_timer)
     );
 
     // Peripherals
-    wire uart_irq;
     apb_uart #(
         .DEFAULT_BAUD_DIV(16'd234) // 27 MHz / 115200
     ) u_uart (
@@ -335,6 +348,21 @@ module soc_top #(
         .pslverr      (pslverr_gpio),
         .gpio_out     (led),
         .gpio_in      ({btn_s2, rst_n})
+    );
+
+    apb_timer u_timer (
+        .pclk         (clk),
+        .preset_n     (rst_sys_n),
+        .psel         (psel_timer),
+        .penable      (apb_penable),
+        .pwrite       (apb_pwrite),
+        .paddr        (apb_paddr),
+        .pwdata       (apb_pwdata),
+        .pstrb        (apb_pstrb),
+        .prdata       (prdata_timer),
+        .pready       (pready_timer),
+        .pslverr      (pslverr_timer),
+        .irq_timer    (irq_timer)
     );
 
     assign cpu_hburst = 3'b000;

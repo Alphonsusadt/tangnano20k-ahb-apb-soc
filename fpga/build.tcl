@@ -64,6 +64,7 @@ add_file ../../rtl/memory/ahb_sram.sv
 add_file ../../rtl/peripherals/apb_uart.sv
 add_file ../../rtl/peripherals/apb_spi.sv
 add_file ../../rtl/peripherals/apb_gpio.sv
+add_file ../../rtl/peripherals/apb_timer.sv
 add_file ../tangnano20k.cst
 add_file ../tangnano20k.sdc
 

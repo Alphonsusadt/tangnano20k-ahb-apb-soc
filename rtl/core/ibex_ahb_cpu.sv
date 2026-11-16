@@ -3,7 +3,8 @@
 // Description: lowRISC Ibex (RV32IMC, no cache, PMP, or debug) with its instruction
 //              and data ports joined onto one AHB-Lite master port.
 //
-// Ibex starts fetching at boot_addr_i + 0x80. Interrupts are tied off for now.
+// Ibex starts fetching at boot_addr_i + 0x80. The machine timer interrupt and the UART
+// (on fast interrupt 0) are connected; software, external, and NMI are tied off.
 // ==============================================================================
 
 module ibex_ahb_cpu (
@@ -17,7 +18,12 @@ module ibex_ahb_cpu (
     output wire [31:0] hwdata,
     input  wire [31:0] hrdata,
     input  wire        hready,
-    input  wire        hresp
+    input  wire        hresp,
+
+    // Level interrupts. The UART uses fast interrupt 0, so mcause is 16 and the
+    // vector is mtvec + 0x40; the timer is the standard machine timer, mcause 7.
+    input  wire        irq_timer,
+    input  wire        irq_uart
 );
 
     wire        instr_req, instr_gnt, instr_rvalid, instr_err;
@@ -83,9 +89,9 @@ module ibex_ahb_cpu (
         .trvk_revbm_err_i        (1'b0),
 
         .irq_software_i          (1'b0),
-        .irq_timer_i             (1'b0),
+        .irq_timer_i             (irq_timer),
         .irq_external_i          (1'b0),
-        .irq_fast_i              (15'h0),
+        .irq_fast_i              ({14'h0, irq_uart}),
         .irq_nm_i                (1'b0),
 
         .scramble_key_valid_i    (1'b0),

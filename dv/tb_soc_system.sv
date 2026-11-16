@@ -40,7 +40,7 @@ module tb_soc_system;
     localparam [31:0] GPIO_DIR = GPIO_BASE + 32'h08;
 
     localparam [31:0] UNMAPPED = 32'h1000_0000;
-    localparam [31:0] RESERVED = 32'h4000_3000;
+    localparam [31:0] RESERVED = 32'h4000_5000;
     localparam [31:0] GARBAGE  = 32'hDEAD_BEEF;
 
     localparam integer UART_DIV    = 15;

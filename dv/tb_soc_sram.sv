@@ -187,7 +187,7 @@ module tb_soc_sram;
         // waiting SRAM write is cancelled during the first cycle, while HREADY is
         // low, so it must not reach memory. This needs HREADY wired to the SRAM.
         write(SRAM_BASE + 32'h60, SIZE_WORD, 32'h600D_600D);
-        xfer(32'h4000_3000, 1'b1, SIZE_WORD, 32'hBAD0_BAD0);
+        xfer(32'h4000_5000, 1'b1, SIZE_WORD, 32'hBAD0_BAD0);
         haddr  <= SRAM_BASE + 32'h60;
         htrans <= 2'b10;
         hwrite <= 1'b1;

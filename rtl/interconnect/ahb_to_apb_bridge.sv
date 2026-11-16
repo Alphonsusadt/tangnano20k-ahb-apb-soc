@@ -33,6 +33,7 @@ module ahb_to_apb_bridge
     output wire        psel_uart,  // 0x4000_0000 - 0x4000_0FFF
     output wire        psel_spi,   // 0x4000_1000 - 0x4000_1FFF
     output wire        psel_gpio,  // 0x4000_2000 - 0x4000_2FFF
+    output wire        psel_timer, // 0x4000_3000 - 0x4000_3FFF
 
     // Peripheral Inputs
     input  wire [31:0] prdata_uart,
@@ -45,7 +46,11 @@ module ahb_to_apb_bridge
 
     input  wire [31:0] prdata_gpio,
     input  wire        pready_gpio,
-    input  wire        pslverr_gpio
+    input  wire        pslverr_gpio,
+
+    input  wire [31:0] prdata_timer,
+    input  wire        pready_timer,
+    input  wire        pslverr_timer
 );
 
     // One outstanding transfer. The first AHB data-phase cycle is already APB SETUP:
@@ -62,23 +67,29 @@ module ahb_to_apb_bridge
     wire invalid_transfer =
         !(in_apb_block(haddr, UART_BASE) ||
           in_apb_block(haddr, SPI_BASE) ||
-          in_apb_block(haddr, GPIO_BASE)) ||
+          in_apb_block(haddr, GPIO_BASE) ||
+          in_apb_block(haddr, TIMER_BASE)) ||
         (hsize > 2) ||
         ((hsize == 1) && haddr[0]) ||
         ((hsize == 2) && (haddr[1:0] != 0));
     wire sel_uart_raw = in_apb_block(paddr, UART_BASE);
     wire sel_spi_raw  = in_apb_block(paddr, SPI_BASE);
-    wire sel_gpio_raw = in_apb_block(paddr, GPIO_BASE);
+    wire sel_gpio_raw  = in_apb_block(paddr, GPIO_BASE);
+    wire sel_timer_raw = in_apb_block(paddr, TIMER_BASE);
     wire apb_active = hreset_n && ((state == ST_SETUP) || (state == ST_ACCESS));
     assign psel_uart = apb_active && sel_uart_raw;
     assign psel_spi  = apb_active && sel_spi_raw;
     assign psel_gpio = apb_active && sel_gpio_raw;
+    assign psel_timer = apb_active && sel_timer_raw;
     wire selected_pready = sel_uart_raw ? pready_uart :
-                           sel_spi_raw ? pready_spi : pready_gpio;
+                           sel_spi_raw  ? pready_spi  :
+                           sel_gpio_raw ? pready_gpio : pready_timer;
     wire [31:0] selected_prdata = sel_uart_raw ? prdata_uart :
-                                 sel_spi_raw ? prdata_spi : prdata_gpio;
+                                  sel_spi_raw  ? prdata_spi  :
+                                  sel_gpio_raw ? prdata_gpio : prdata_timer;
     wire selected_pslverr = sel_uart_raw ? pslverr_uart :
-                            sel_spi_raw ? pslverr_spi : pslverr_gpio;
+                            sel_spi_raw  ? pslverr_spi  :
+                            sel_gpio_raw ? pslverr_gpio : pslverr_timer;
     assign hresp = hreset_n && ((state == ST_ERROR1) || (state == ST_ERROR2));
     always_comb begin
         hready = !hreset_n || (state == ST_IDLE) ||
