@@ -225,6 +225,20 @@ module tb_soc_ibex;
         check($sformatf("Echo of 0x%02x is intact", value), rx_log[0] === value);
     endtask
 
+    // Fetches from the interrupt vectors. Ibex jumps to mtvec + 4 * cause, so a fetch
+    // of 0x1C is the timer interrupt (cause 7) and 0x40 is the UART (fast 0, cause 16).
+    // Nothing else reaches these entries, so each fetch is one interrupt taken.
+    integer vec_timer_fetches = 0;
+    integer vec_uart_fetches = 0;
+
+    always @(posedge clk) begin
+        if (rst_n === 1'b1 && cpu_htrans === 2'b10 && cpu_hready === 1'b1 &&
+            u_dut.cpu_hwrite === 1'b0) begin
+            if (cpu_haddr === 32'h0000_001C) vec_timer_fetches++;
+            if (cpu_haddr === 32'h0000_0040) vec_uart_fetches++;
+        end
+    end
+
     // Any write to the word the misaligned store targets
     integer writes_to_target = 0;
 
@@ -237,6 +251,8 @@ module tb_soc_ibex;
 
     integer guard;
     integer toggles;
+    integer timer_vectors;
+    integer uart_vectors;
     logic   previous_led;
     string  image;
 
@@ -390,12 +406,17 @@ module tb_soc_ibex;
 
         toggles = 0;
         previous_led = led[0];
+        timer_vectors = vec_timer_fetches;
         repeat (30000) begin
             @(posedge clk);
             if (led[0] !== previous_led) toggles++;
             previous_led = led[0];
         end
+        timer_vectors = vec_timer_fetches - timer_vectors;
         check("Heartbeat LED toggles", toggles >= 5 && toggles <= 9);
+        check($sformatf("Each toggle comes from a timer interrupt: %0d toggles, %0d vector fetches",
+                        toggles, timer_vectors),
+              timer_vectors >= toggles && timer_vectors <= toggles + 1);
 
         // ---- S2 ----
         btn_s2 = 1'b1;
@@ -405,11 +426,15 @@ module tb_soc_ibex;
         wait_cycles(500);
         check("Releasing S2 turns its LED off", led[3] === 1'b1);
 
-        // ---- UART echo through the CPU ----
+        // ---- UART echo through the CPU, from the RX interrupt ----
+        uart_vectors = vec_uart_fetches;
         test_echo(8'h5A);
         test_echo(8'h00);
         test_echo(8'hFF);
         test_echo(8'hA5);
+        uart_vectors = vec_uart_fetches - uart_vectors;
+        check($sformatf("Each echo goes through the UART interrupt vector, got %0d", uart_vectors),
+              uart_vectors == 4);
 
         // ---- Reset restarts the firmware ----
         rx_count = 0;

@@ -1,7 +1,8 @@
 /* ==============================================================================
  * Tang Nano 20K Ibex firmware
  * Runs a CPU and bus self-test, reports on the UART, then echoes the UART and
- * drives the LEDs. Report: "IBEX PASS\r\n" or "IBEX FAIL xx\r\n", xx = failed test.
+ * drives the LEDs. After the self-test both are interrupt driven: the timer
+ * interrupt toggles the heartbeat, and the UART RX interrupt echoes each byte. Report: "IBEX PASS\r\n" or "IBEX FAIL xx\r\n", xx = failed test.
  * LEDs (active low): [0] heartbeat, [1] pass, [2] fail, [3] S2 pressed.
  * ============================================================================== */
 
@@ -12,9 +13,26 @@
 
 #define UART_DATA       REG32(UART_BASE + 0x00U)
 #define UART_STATUS     REG32(UART_BASE + 0x04U)
+#define UART_CTRL       REG32(UART_BASE + 0x08U)
 #define UART_BAUD       REG32(UART_BASE + 0x0CU)
 #define UART_RX_VALID   (1U << 0)
 #define UART_TX_EMPTY   (1U << 1)
+#define UART_CTRL_TX_EN     (1U << 0)
+#define UART_CTRL_RX_EN     (1U << 1)
+#define UART_CTRL_RX_IRQ_EN (1U << 3)
+
+#define MTIME_LO        REG32(TIMER_BASE + 0x00U)
+#define MTIME_HI        REG32(TIMER_BASE + 0x04U)
+#define MTIMECMP_LO     REG32(TIMER_BASE + 0x08U)
+#define MTIMECMP_HI     REG32(TIMER_BASE + 0x0CU)
+#define TIMER_CTRL      REG32(TIMER_BASE + 0x10U)
+#define TIMER_CTRL_EN   (1U << 0)
+
+#define MIE_MTIE        (1U << 7)      /* Machine timer interrupt enable */
+#define MIE_FAST0       (1U << 16)     /* Ibex fast interrupt 0: the UART */
+#define MSTATUS_MIE     (1U << 3)
+#define MCAUSE_TIMER    0x80000007U
+#define MCAUSE_UART     0x80000010U
 
 #define SPI_CR          REG32(SPI_BASE + 0x00U)
 #define SPI_SR          REG32(SPI_BASE + 0x04U)
@@ -33,6 +51,67 @@
 #ifndef HEARTBEAT_BIT
 #define HEARTBEAT_BIT   23
 #endif
+
+/* Written by the interrupt handlers, read by the main loop and the self-test. */
+static volatile uint32_t heartbeat;
+static volatile uint32_t timer_ticks;
+static volatile uint32_t timer_mcause;
+static volatile uint32_t uart_irqs;
+
+/* Reads the 64-bit mtime: HI, LO, HI again, and retries if a carry moved HI. */
+static uint64_t mtime_read(void) {
+    uint32_t hi, lo;
+    do {
+        hi = MTIME_HI;
+        lo = MTIME_LO;
+    } while (MTIME_HI != hi);
+    return ((uint64_t)hi << 32) | lo;
+}
+
+/* Writes the 64-bit mtimecmp so that no intermediate value is below mtime:
+ * LO to its maximum first, then HI, then the real LO. */
+static void mtimecmp_write(uint64_t value) {
+    MTIMECMP_LO = 0xFFFFFFFFU;
+    MTIMECMP_HI = (uint32_t)(value >> 32);
+    MTIMECMP_LO = (uint32_t)value;
+}
+
+static uint64_t mtimecmp_read(void) {
+    return ((uint64_t)MTIMECMP_HI << 32) | MTIMECMP_LO;
+}
+
+/* Machine timer, mcause 7. The interrupt is a level, so it is cleared by moving
+ * mtimecmp one heartbeat period further; adding to mtimecmp rather than to mtime
+ * keeps the period exact however late the handler runs. */
+void __attribute__((interrupt)) timer_isr(void) {
+    uint32_t cause;
+    __asm__ volatile ("csrr %0, mcause" : "=r"(cause));
+    timer_mcause = cause;
+    timer_ticks++;
+    heartbeat ^= 1U;
+    mtimecmp_write(mtimecmp_read() + (1ULL << HEARTBEAT_BIT));
+}
+
+/* UART RX, fast interrupt 0. Reading UART_DATA clears RX_VALID, which clears the
+ * interrupt, so the handler drains every received byte and echoes it. */
+void __attribute__((interrupt)) uart_isr(void) {
+    uart_irqs++;
+    while (UART_STATUS & UART_RX_VALID) {
+        uint32_t c = UART_DATA & 0xFFU;
+        while (!(UART_STATUS & UART_TX_EMPTY)) {
+        }
+        UART_DATA = c;
+    }
+}
+
+/* Starts the timer with the first interrupt `delay` cycles from now. */
+static void timer_start(uint32_t delay) {
+    TIMER_CTRL = 0U;
+    mtimecmp_write(mtime_read() + delay);
+    TIMER_CTRL = TIMER_CTRL_EN;
+    __asm__ volatile ("csrs mie, %0" : : "r"(MIE_MTIE));
+    __asm__ volatile ("csrs mstatus, %0" : : "r"(MSTATUS_MIE));
+}
 
 /* Startup code and the two tests below depend on these. */
 static volatile uint32_t data_word = 0x12345678U;
@@ -56,7 +135,7 @@ static char hex_char(uint32_t value) {
     return (char)((value < 10U) ? ('0' + value) : ('A' + value - 10U));
 }
 
-static uint32_t read_cycle_counter(void) {
+static uint32_t __attribute__((unused)) read_cycle_counter(void) {
     uint32_t value;
     __asm__ volatile ("csrr %0, mcycle" : "=r"(value));
     return value;
@@ -135,6 +214,14 @@ static uint32_t run_self_test(void) {
     }
 #endif
 
+    /* 9: The timer interrupt arrives, through the vector for mcause 7. */
+    timer_start(200U);
+    for (uint32_t i = 0U; i < 2000U && timer_ticks == 0U; i++) {
+    }
+    if (timer_ticks == 0U || timer_mcause != MCAUSE_TIMER) {
+        return 9U;
+    }
+
     return 0U;
 }
 
@@ -209,13 +296,17 @@ int main(void) {
         uart_puts("\r\n");
     }
 
-    while (1) {
-        uint32_t status = UART_STATUS;
-        if ((status & UART_RX_VALID) && (status & UART_TX_EMPTY)) {
-            UART_DATA = UART_DATA;
-        }
+    /* The heartbeat runs even if the self-test stopped before test 9. */
+    if (!(TIMER_CTRL & TIMER_CTRL_EN)) {
+        timer_start(1U << HEARTBEAT_BIT);
+    }
 
-        uint32_t lit = (read_cycle_counter() >> HEARTBEAT_BIT) & 1U;
+    /* Echo through the UART RX interrupt instead of polling. */
+    UART_CTRL = UART_CTRL_TX_EN | UART_CTRL_RX_EN | UART_CTRL_RX_IRQ_EN;
+    __asm__ volatile ("csrs mie, %0" : : "r"(MIE_FAST0));
+
+    while (1) {
+        uint32_t lit = heartbeat & 1U;
         lit |= (failed == 0U) ? (1U << 1) : (1U << 2);
         if (GPIO_IN & GPIO_IN_S2) {
             lit |= 1U << 3;

@@ -5,14 +5,23 @@
     .equ UART_DATA, UART_BASE
 
     /* Ibex takes exceptions at boot_addr, interrupts at boot_addr + 4 * cause,
-     * and resets at boot_addr + 0x80.
-     * Each entry must stay 4 bytes, so compressed instructions are off here. */
+     * and resets at boot_addr + 0x80. Entry 7 is the machine timer, entry 16 is fast
+     * interrupt 0 (the UART); every other entry, and every exception, goes to
+     * trap_handler. Each entry must stay 4 bytes, so compressed instructions are off. */
     .section .vectors, "ax"
     .option push
     .option norvc
     .global _vectors
 _vectors:
-    .rept 32
+    .rept 7
+    j trap_handler
+    .endr
+    j timer_isr             /* 7: machine timer */
+    .rept 8
+    j trap_handler
+    .endr
+    j uart_isr              /* 16: fast interrupt 0, UART */
+    .rept 15
     j trap_handler
     .endr
 reset_entry:
