@@ -79,8 +79,10 @@ SOURCES=(
     rtl/peripherals/apb_gpio.sv
     rtl/peripherals/apb_spi.sv
     rtl/peripherals/apb_uart.sv
+    rtl/peripherals/apb_timer.sv
     dv/sva/ahb_lite_checks.sv
     dv/sva/apb_checks.sv
+    dv/sva/irq_checks.sv
     dv/sva/soc_top_checks_bind.sv
     dv/tb_soc_ibex.sv
 )

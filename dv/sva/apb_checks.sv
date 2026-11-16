@@ -16,17 +16,20 @@ module apb_checks (
     input wire        psel_uart,
     input wire        psel_spi,
     input wire        psel_gpio,
+    input wire        psel_timer,
     input wire        pready_uart,
     input wire        pready_spi,
     input wire        pready_gpio,
+    input wire        pready_timer,
     input wire        pwrite,
     input wire [31:0] paddr,
     input wire [31:0] pwdata,
     input wire [3:0]  pstrb
 );
 
-    wire psel_any  = psel_uart || psel_spi || psel_gpio;
-    wire pready_sel = psel_uart ? pready_uart : psel_spi ? pready_spi : pready_gpio;
+    wire psel_any  = psel_uart || psel_spi || psel_gpio || psel_timer;
+    wire pready_sel = psel_uart ? pready_uart : psel_spi ? pready_spi :
+                      psel_gpio ? pready_gpio : pready_timer;
 
     wire setup    = psel_any && !penable;
     wire access   = psel_any && penable;
@@ -36,7 +39,7 @@ module apb_checks (
     // One peripheral is selected at a time, because the bridge decodes one address.
     a_apb_one_select: assert property (
         @(posedge hclk) disable iff (!hreset_n)
-        $onehot0({psel_uart, psel_spi, psel_gpio})
+        $onehot0({psel_uart, psel_spi, psel_gpio, psel_timer})
     ) else $error("More than one APB peripheral selected at the same time");
 
     // PENABLE only exists during a selected transfer.
@@ -62,7 +65,7 @@ module apb_checks (
     a_apb_stable_until_done: assert property (
         @(posedge hclk) disable iff (!hreset_n)
         (setup || wait_st) |=> ($stable(paddr) && $stable(pwrite) && $stable(pwdata) &&
-                                $stable(pstrb) && $stable({psel_uart, psel_spi, psel_gpio}))
+                                $stable(pstrb) && $stable({psel_uart, psel_spi, psel_gpio, psel_timer}))
     ) else $error("APB address, control, or data changed before the transfer completed");
 
     // The transfer ends when PREADY is high in ACCESS. PENABLE must fall in the next

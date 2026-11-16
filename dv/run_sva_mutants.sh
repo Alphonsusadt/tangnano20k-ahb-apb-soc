@@ -87,6 +87,11 @@ run_mutant apb_addr_moves a_apb_stable_until_done rtl/interconnect/ahb_to_apb_br
 
 run_mutant apb_enable_stays a_apb_enable_drops_after_complete rtl/interconnect/ahb_to_apb_bridge.sv     's/else state <= ST_RESPONSE;/else state <= ST_ACCESS;/'
 
+# Interrupt rules: a pulse instead of a level must be caught, because the CPU can miss it.
+run_mutant timer_irq_pulse a_timer_irq_held rtl/peripherals/apb_timer.sv     's/assign irq_timer = en \&\& (mtime >= mtimecmp);/assign irq_timer = en \&\& (mtime == mtimecmp);/'
+
+run_mutant uart_irq_pulse a_uart_irq_held rtl/peripherals/apb_uart.sv     's/(ctrl_reg\[3\] \&\& rx_valid)/(ctrl_reg[3] \&\& rx_done)/'
+
 echo "---"
 echo "$passed caught, $failed not caught"
 [ "$failed" -eq 0 ]

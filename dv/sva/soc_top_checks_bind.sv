@@ -19,11 +19,25 @@ bind soc_top apb_checks u_apb_checks (
     .psel_uart   (psel_uart),
     .psel_spi    (psel_spi),
     .psel_gpio   (psel_gpio),
+    .psel_timer  (psel_timer),
     .pready_uart (pready_uart),
     .pready_spi  (pready_spi),
     .pready_gpio (pready_gpio),
+    .pready_timer(pready_timer),
     .pwrite      (apb_pwrite),
     .paddr       (apb_paddr),
     .pwdata      (apb_pwdata),
     .pstrb       (apb_pstrb)
+);
+
+// Attaches the interrupt assertions to the two interrupt lines in every soc_top instance.
+bind soc_top irq_checks u_irq_checks (
+    .hclk       (clk),
+    .hreset_n   (rst_sys_n),
+    .irq_timer  (irq_timer),
+    .uart_irq   (uart_irq),
+    .penable    (apb_penable),
+    .pwrite     (apb_pwrite),
+    .psel_timer (psel_timer),
+    .psel_uart  (psel_uart)
 );
