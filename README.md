@@ -34,19 +34,21 @@ This project is under active development.
 | Area | Status |
 | --- | --- |
 | APB SPI master RTL | Directed unit regression passes: 303 checks, including `SPI_CR` rewritten mid-byte in every mode and a refused write while busy |
+| APB timer | `mtime`/`mtimecmp` 64-bit timer with a level interrupt: unit regression passes 26 checks in Icarus and Verilator; eight broken copies all fail it |
+| Interrupts | Timer on `irq_timer_i`, UART RX on `irq_fast_i[0]`. On Ibex the heartbeat LED is driven by the timer interrupt and the UART echo by the RX interrupt; the test checks a vector fetch for every toggle and every echo, and fails if either line is cut. Two assertions require each line to stay high until software clears it |
 | APB UART RTL | Directed unit regression passes: 78 checks, including `RX_EN` cleared mid-frame and a refused write while busy |
 | AHB-Lite SRAM | Unit regression passes: 8,855 checks; SoC-level regression passes: 27 checks |
 | AHB-Lite ROM | Unit regression passes in Icarus and Verilator: 64 checks, including a two-cycle ERROR for every write size; six broken copies of the ROM all fail it |
 | AHB interconnect and default slave | Directed unit regression passes: 299 checks |
 | APB write strobes (GPIO, UART, SPI) | Directed regression passes: 62 checks |
-| AHB-to-APB4 bridge | Directed unit regression passes: 1,933 checks. An APB access takes 2 wait states plus any `PREADY` stall, one fewer than before |
+| AHB-to-APB4 bridge | Directed unit regression passes: 2,492 checks across the UART, SPI, GPIO, and timer blocks. An APB access takes 2 wait states plus any `PREADY` stall, one fewer than before |
 | SoC system without a CPU | Regression through the bus to the chip pins passes in Icarus and Verilator: 15,578 checks, including random traffic |
 | FPGA self-test image, no CPU | Regression from the board pins passes: 175 checks, including injected faults |
 | OBI-to-AHB adapter | Random regression passes: 1,351,409 checks across five traffic and wait-state profiles |
-| Ibex integration | Firmware runs on Ibex in Verilator simulation: 145 checks from the chip pins, including misaligned store, ROM store, unmapped store, and peripheral `PSLVERR` traps, and an SPI exchange with a model of an external slave |
+| Ibex integration | Firmware runs on Ibex in Verilator simulation: 147 checks from the chip pins, including misaligned store, ROM store, unmapped store, and peripheral `PSLVERR` traps, and an SPI exchange with a model of an external slave |
 | AHB-Lite bus assertions | 9 SVA rules on the CPU bus pass in all 6 Ibex runs under Verilator, including an `ERROR` from the AHB-to-APB bridge; `dv/run_sva_mutants.sh` shows each rule firing on a broken copy of the RTL |
 | APB bus assertions | 5 SVA rules between the bridge and the peripherals pass in the Ibex runs; `dv/run_apb_wait.sh` stalls `PREADY` for 0-3 cycles and checks that the bridge holds the address, and a broken bridge fails |
-| Bare-metal firmware | Self-test, UART echo, and LED firmware runs in simulation and on the board |
+| Bare-metal firmware | Self-test (including the timer interrupt), interrupt-driven UART echo, and timer-driven heartbeat LED run in simulation; the interrupt version has not been run on the board yet |
 | FPGA synthesis and timing with Ibex | Gowin place and route completes; 27 MHz constraint met in timing analysis (see [FPGA Implementation](#fpga-implementation)) |
 | FPGA board test | CPU-free self-test image runs on a Tang Nano 20K: `SOC PASS` report, UART echo, LEDs, and S2 confirmed by hand. Ibex image runs on the same board: `IBEX PASS` report, UART echo, LEDs, and S2 confirmed by hand. SPI demo image exchanges bytes with an STM32F407 slave at 500 kHz: 8 typed transfers confirmed by hand. SPI signals not yet measured |
 
@@ -100,6 +102,7 @@ tangnano-soc-portfolio/
 |   |-- tb_ahb_to_apb_bridge.sv
 |   |-- tb_apb_pstrb.sv
 |   |-- tb_apb_spi.sv
+|   |-- tb_apb_timer.sv
 |   |-- tb_apb_uart.sv
 |   |-- tb_soc_sram.sv
 |   |-- tb_fpga_top.sv
@@ -107,7 +110,7 @@ tangnano-soc-portfolio/
 |   |-- run_ibex_sim.sh
 |   |-- run_regression.sh         # Runs every self-checking test
 |   |-- run_sva_mutants.sh        # Shows that each assertion can fail, slow
-|   |-- sva/                      # AHB-Lite and APB assertions, bound to soc_top
+|   |-- sva/                      # AHB-Lite, APB, and interrupt assertions, bound to soc_top
 |   |-- lint_waiver.vlt           # Per-signal lint waivers used in CI
 |   |-- tb_soc_ibex.sv
 |   |-- tb_soc_system.sv
@@ -124,7 +127,7 @@ tangnano-soc-portfolio/
 |   |-- fpga/                     # Board wrapper and self-test AHB master
 |   |-- interconnect/             # AHB decoder, AHB-to-APB bridge, and OBI-to-AHB adapter
 |   |-- memory/                   # AHB-Lite ROM and SRAM with byte and halfword writes
-|   |-- peripherals/              # APB UART, SPI, and GPIO
+|   |-- peripherals/              # APB UART, SPI, GPIO, and 64-bit timer
 |   |-- soc_pkg.sv                # Memory map: base addresses and decode helpers
 |   `-- soc_top.sv                # SoC top level
 |-- sw/                           # Bare-metal firmware, soc_map.h, linker script, compiled image, and STM32 SPI slave sketch
@@ -300,10 +303,10 @@ Results with Gowin V1.9.11.03 Education and the firmware image:
 
 | Metric | Result |
 | --- | --- |
-| Logic | 5,385 / 20,736 (5,286 LUT, 99 ALU) |
-| Registers | 2,270 / 15,750 |
+| Logic | 5,772 / 20,736 (5,608 LUT, 164 ALU) |
+| Registers | 2,433 / 15,750 |
 | Block RAM | 17 / 46 |
-| Timing | 27 MHz constraint met, estimated Fmax 40.4 MHz |
+| Timing | 27 MHz constraint met, estimated Fmax 39.0 MHz |
 
 Block RAM use grows with the firmware, because synthesis trims unused ROM contents. Only the clock is constrained; I/O timing is not. The tool also warns (`PR1014`) that the clock from pin 4 uses generic routing.
 
@@ -376,7 +379,7 @@ This project is intended to demonstrate practical understanding of:
 - The current verification environment is primarily directed testing; coverage-driven and formal verification are future improvements.
 - Assertions cover the AHB-Lite bus between the CPU and the interconnect, and the APB bus behind the bridge. They run in the Ibex simulation and in the APB stall test, and the APB stall test does not run the peripherals themselves.
 - Only the FPGA clock is constrained; I/O timing is not.
-- CPU interrupts and the debug module are not connected.
+- The debug module is not connected. Interrupts cover the timer and the UART only; there is no interrupt controller.
 - The UART and SPI have no FIFOs: a write while the transmitter is busy is refused with a bus error. `GPIO_DIR` is an output enable whose released state turns the LED off, because the LED pins have no input path; see [`docs/memory_map.md`](docs/memory_map.md).
 - The SPI signals have not been measured on the board. The STM32 demo shows correct bytes at 500 kHz, not signal timing or margin.
 - The design is an educational FPGA SoC and is not yet a silicon-qualified ASIC implementation.

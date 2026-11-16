@@ -31,7 +31,14 @@ Tulis byte dan halfword ke register APB mengikuti `PSTRB`: satu byte register ha
 
 Periferal tidak memiliki FIFO. UART dan SPI masing-masing hanya menampung satu byte.
 
-Sinyal interrupt `uart_irq` ada di `apb_uart`, tetapi belum tersambung ke CPU.
+Interrupt ke Ibex (keduanya level, dibersihkan oleh software, tanpa register pending):
+
+| Sumber | Input Ibex | `mcause` | Vektor | Aktif selama | Dibersihkan dengan |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| Timer | `irq_timer_i` | `0x80000007` | `0x1C` | `EN` = `1` dan `mtime >= mtimecmp` | Menaikkan `mtimecmp` atau `EN` = `0` |
+| UART | `irq_fast_i[0]` | `0x80000010` | `0x40` | (`RX_IRQ_EN` dan `RX_VALID`) atau (`TX_IRQ_EN` dan `TX_EMPTY`) | Membaca `UART_DATA`, menulis `UART_DATA`, atau mematikan enable |
+
+Ibex memakai mode vectored: interrupt dengan `mcause` = n melompat ke `mtvec + 4n`, dan `mtvec` = alamat boot (`0x0`). Kedua sumber adalah kondisi level, bukan event sesaat, jadi tidak perlu register pending W1C: interrupt tetap aktif sampai software menangani penyebabnya, dan tidak bisa hilang.
 
 ---
 
@@ -64,8 +71,8 @@ Dengan nilai reset 234 dan clock 27 MHz, satu bit berlangsung 235 clock, yaitu s
 ### Deskripsi Bit `UART_CTRL` (`0x08`)
 - **Bit [0]** (`TX_EN`): `1` = Aktifkan transmitter UART.
 - **Bit [1]** (`RX_EN`): `1` = Aktifkan receiver UART. Mengubahnya ke `0` di tengah frame membuang frame itu, dan receiver kembali idle. Setelah `RX_EN` = `1` lagi, receiver menunggu start bit berikutnya.
-- **Bit [2]** (`TX_IRQ_EN`): `1` = `uart_irq` aktif saat TX kosong. Belum tersambung ke CPU.
-- **Bit [3]** (`RX_IRQ_EN`): `1` = `uart_irq` aktif saat `RX_VALID` = `1`. Belum tersambung ke CPU.
+- **Bit [2]** (`TX_IRQ_EN`): `1` = `uart_irq` aktif saat TX kosong. Tersambung ke `irq_fast_i[0]` Ibex.
+- **Bit [3]** (`RX_IRQ_EN`): `1` = `uart_irq` aktif saat `RX_VALID` = `1`. Tersambung ke `irq_fast_i[0]` Ibex.
 
 ---
 
@@ -123,7 +130,7 @@ Mengontrol LED onboard Tang Nano 20K dan membaca tombol.
 
 ## 5. Timer (`0x4000_3000`)
 
-Timer 64 bit dengan `mtime` yang naik satu tick per clock sistem (27 MHz, sekitar 37 ns). Tanpa prescaler. Interrupt bersifat level: `irq_timer = mtime >= mtimecmp` saat timer aktif.
+Timer 64 bit dengan `mtime` yang naik satu tick per clock sistem (27 MHz, sekitar 37 ns). Tanpa prescaler. Interrupt bersifat level: `irq_timer = EN && (mtime >= mtimecmp)`. Ia tetap aktif sampai software menaikkan `mtimecmp` atau mematikan `EN`. Tulis ke `MTIME` saat `EN` = `1` tetap berlaku: byte yang ditulis mengambil nilai baru, byte lain tetap ikut bertambah.
 
 | Offset | Nama | Akses | Reset | Deskripsi |
 | :--- | :--- | :--- | :--- | :--- |
