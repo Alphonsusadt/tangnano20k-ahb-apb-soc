@@ -156,3 +156,16 @@ Register untuk loader (F6). Dipakai untuk menahan Ibex saat program dimuat, dan 
 | `0x04` | `BOOT_ADDR` | R/W | `0x00000000` | Alamat boot Ibex. Ibex mulai mengambil instruksi di `BOOT_ADDR + 0x80`. Hanya boleh diubah saat `CPU_HOLD` = `1` |
 
 Reset default menahan Ibex, sehingga firmware tidak berjalan sebelum sistem kontrol diatur. Saat ini (sebelum F6) register ini belum tersambung ke Ibex, dan Ibex masih mulai dari `boot_addr_i = 0`.
+
+## 7. Tata letak SRAM untuk bootloader
+
+Program aplikasi yang dimuat lewat bootloader (`docs/boot_protocol.md`) berjalan dari SRAM. SRAM dibagi dua supaya bootloader tidak menimpa dirinya sendiri saat memuat:
+
+| Alamat | Ukuran | Isi |
+| :--- | :--- | :--- |
+| `0x2000_0000` - `0x2000_6FFF` | 28 KB | Image aplikasi: vektor, kode, data, `.bss`, dan stack aplikasi. Image dimuat apa adanya, jadi `.data` tidak perlu disalin. |
+| `0x2000_7000` - `0x2000_7FFF` | 4 KB | `.data`, `.bss`, dan stack bootloader. Bootloader menolak alamat muat yang menyentuh bagian ini. |
+
+Aplikasi dibangun dengan `sw/link_ram.ld` dan `sw/crt_ram.S` (`make -C sw app`). Setelah reset, `mtvec` menunjuk ke tabel vektor di ROM, jadi `crt_ram.S` memasang tabel vektor milik aplikasi (di awal image, rata 256 byte seperti yang diminta Ibex). Trap di aplikasi mengirim `?` lewat UART, berbeda dari `!` milik firmware ROM.
+
+Ibex bisa menjalankan kode dari SRAM: self-test 10 menulis tiga instruksi ke SRAM, menjalankan `fence.i`, lalu memanggilnya.

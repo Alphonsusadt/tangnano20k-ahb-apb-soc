@@ -8,6 +8,7 @@ CROSS   ?= riscv64-unknown-elf-
 CC      := $(CROSS)gcc
 OBJCOPY := $(CROSS)objcopy
 SIZE    := $(CROSS)size
+OBJDUMP := $(CROSS)objdump
 
 # -mstrict-align stops the compiler creating the misaligned stores that the
 # OBI-to-AHB adapter refuses.
@@ -24,7 +25,23 @@ $(NAME).elf: crt0.S main.c link.ld soc_map.h
 	$(CC) $(CFLAGS) -T link.ld -o $@ crt0.S main.c
 	$(SIZE) $@
 
-clean:
-	rm -f $(NAME).elf $(NAME).bin $(NAME).hex
+# An application that runs from SRAM, for the bootloader. `make app` builds
+# $(APP).bin, the raw image to send, and $(APP).dis, to check the addresses.
+APP = app_hello
 
-.PHONY: clean
+app: $(APP).bin $(APP).dis
+
+$(APP).elf: crt_ram.S $(APP).c link_ram.ld soc_map.h
+	$(CC) $(CFLAGS) -T link_ram.ld -o $@ crt_ram.S $(APP).c
+	$(SIZE) $@
+
+$(APP).bin: $(APP).elf
+	$(OBJCOPY) -O binary $< $@
+
+$(APP).dis: $(APP).elf
+	$(OBJDUMP) -d $< > $@
+
+clean:
+	rm -f $(NAME).elf $(NAME).bin $(NAME).hex $(APP).elf $(APP).bin $(APP).dis
+
+.PHONY: clean app
