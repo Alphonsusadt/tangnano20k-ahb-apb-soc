@@ -119,6 +119,15 @@ static volatile uint32_t bss_word;
 static const uint32_t rom_table[4] = {0x11111111U, 0x22222222U, 0x33333333U, 0x44444444U};
 static volatile uint32_t sram_buffer[4];
 
+/* Machine code for test 10, copied into SRAM and run from there:
+ * a0 = a0 * 2 + 1. Plain RV32I words, so they do not depend on where they run. */
+static const uint32_t sram_code_image[3] = {
+    0x00151513U,    /* slli a0, a0, 1 */
+    0x00150513U,    /* addi a0, a0, 1 */
+    0x00008067U,    /* ret            */
+};
+static volatile uint32_t sram_code[3] __attribute__((aligned(4)));
+
 static void uart_putc(char c) {
     while (!(UART_STATUS & UART_TX_EMPTY)) {
     }
@@ -220,6 +229,18 @@ static uint32_t run_self_test(void) {
     }
     if (timer_ticks == 0U || timer_mcause != MCAUSE_TIMER) {
         return 9U;
+    }
+
+    /* 10: Code runs from SRAM. The words are written as data, fence.i makes the
+     * fetch path see them, and the call fetches them from 0x2000_xxxx. fence.i is
+     * written as its encoding, because this compiler's -march has no Zifencei. */
+    for (uint32_t i = 0U; i < 3U; i++) {
+        sram_code[i] = sram_code_image[i];
+    }
+    __asm__ volatile (".word 0x0000100f" ::: "memory");     /* fence.i */
+    uint32_t (*sram_fn)(uint32_t) = (uint32_t (*)(uint32_t))(uintptr_t)sram_code;
+    if (sram_fn(20U) != 41U) {
+        return 10U;
     }
 
     return 0U;

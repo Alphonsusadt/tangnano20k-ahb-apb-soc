@@ -225,6 +225,18 @@ module tb_soc_ibex;
         check($sformatf("Echo of 0x%02x is intact", value), rx_log[0] === value);
     endtask
 
+    // Instruction fetches the CPU's fetch port takes from SRAM. Read inside the CPU
+    // wrapper, because on the shared AHB bus a fetch looks the same as a data read.
+    integer sram_fetches = 0;
+
+    always @(posedge clk) begin
+        if (rst_n === 1'b1 && u_dut.g_ibex.u_cpu.instr_req === 1'b1 &&
+            u_dut.g_ibex.u_cpu.instr_gnt === 1'b1 &&
+            u_dut.g_ibex.u_cpu.instr_addr[31:15] === 17'h04000) begin
+            sram_fetches++;
+        end
+    end
+
     // Fetches from the interrupt vectors. Ibex jumps to mtvec + 4 * cause, so a fetch
     // of 0x1C is the timer interrupt (cause 7) and 0x40 is the UART (fast 0, cause 16).
     // Nothing else reaches these entries, so each fetch is one interrupt taken.
@@ -390,6 +402,8 @@ module tb_soc_ibex;
         check("No trap was taken", trap_chars == 0);
         check("First fetch is the reset vector", first_fetch === 32'h0000_0080);
         check("CPU is driving the bus", fetches > 500);
+        check($sformatf("Self-test 10 fetched its code from SRAM, %0d fetches", sram_fetches),
+              sram_fetches >= 3);
         check("No ERROR responses on the bus", error_responses == 0);
 
         // ---- SPI seen on the pins ----
